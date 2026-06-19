@@ -832,50 +832,53 @@ impl App {
         let sel_bg = get_bg(ThemeComponentType::RibbonSelected, t);
         let unsel_fg = get_fg(ThemeComponentType::RibbonUnselected, t);
         let unsel_bg = get_bg(ThemeComponentType::RibbonUnselected, t);
-        let status_active = self.is_element_active(PreviewElement::TextUnselected);
+        // The status bar has no palette of its own — its pills borrow the Tab
+        // (ribbon) colors, so they flash when a Tab element is selected:
+        //   • pill key segments + mode pill → Tab (Selected)   / RibbonSelected
+        //   • pill action segments          → Tab (Unselected) / RibbonUnselected
+        let is_tab_sel = self.is_element_active(PreviewElement::TabSelected);
+        let is_tab_unsel = self.is_element_active(PreviewElement::TabUnselected);
 
-        // Mode label changes based on app state and selection
-        let (mode_label, mode_fg, mode_bg) = if status_active {
-            (" STATUS ", sel_fg, sel_bg)
-        } else {
-            match self.input_mode {
-                InputMode::ColorPicker => (" COLOR  ", sel_fg, sel_bg),
-                InputMode::Preview => (" NORMAL ", sel_fg, sel_bg),
-                InputMode::ThemeNameInput | InputMode::ThemeNameInputApply => {
-                    (" APPLY  ", sel_fg, sel_bg)
-                }
-                InputMode::ThemeLoad => (" LOAD   ", sel_fg, sel_bg),
-                InputMode::ThemeLoadRename => (" RENAME ", sel_fg, sel_bg),
-                InputMode::ThemeLoadDeleteConfirm => (" DELETE ", Color::Rgb(255, 100, 100), Color::Rgb(80, 20, 20)),
-                InputMode::UpdateRestartConfirm => (" UPDATE ", sel_fg, sel_bg),
-                InputMode::FieldSearch => (" FIND   ", sel_fg, sel_bg),
-                InputMode::Help => (" HELP   ", sel_fg, sel_bg),
-                InputMode::About => (" ABOUT  ", sel_fg, sel_bg),
+        // Mode label is purely mode-driven; selection feedback is the flash.
+        let (mode_label, mode_fg, mode_bg) = match self.input_mode {
+            InputMode::ColorPicker => (" COLOR  ", sel_fg, sel_bg),
+            InputMode::Preview => (" NORMAL ", sel_fg, sel_bg),
+            InputMode::ThemeNameInput | InputMode::ThemeNameInputApply => {
+                (" APPLY  ", sel_fg, sel_bg)
             }
+            InputMode::ThemeLoad => (" LOAD   ", sel_fg, sel_bg),
+            InputMode::ThemeLoadRename => (" RENAME ", sel_fg, sel_bg),
+            InputMode::ThemeLoadDeleteConfirm => (" DELETE ", Color::Rgb(255, 100, 100), Color::Rgb(80, 20, 20)),
+            InputMode::UpdateRestartConfirm => (" UPDATE ", sel_fg, sel_bg),
+            InputMode::FieldSearch => (" FIND   ", sel_fg, sel_bg),
+            InputMode::Help => (" HELP   ", sel_fg, sel_bg),
+            InputMode::About => (" ABOUT  ", sel_fg, sel_bg),
         };
 
-        let pill_full = |key: &str, action: &str, active: bool| -> Vec<Span<'static>> {
+        // key_active flashes the RibbonSelected segment, action_active the
+        // RibbonUnselected segment — they map to the two Tab elements.
+        let pill_full = |key: &str, action: &str, key_active: bool, action_active: bool| -> Vec<Span<'static>> {
             vec![
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(active)),
+                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(key_active)),
                 ),
                 Span::styled("", Style::new().fg(unsel_bg).bg(sel_bg)),
                 Span::styled(
                     format!(" {} ", action),
-                    Style::new().fg(unsel_fg).bg(unsel_bg).add_modifier(selection_modifier(active)),
+                    Style::new().fg(unsel_fg).bg(unsel_bg).add_modifier(selection_modifier(action_active)),
                 ),
                 Span::styled("", Style::new().fg(unsel_bg).bg(bar_bg)),
             ]
         };
 
-        let pill_key_only = |key: &str, active: bool| -> Vec<Span<'static>> {
+        let pill_key_only = |key: &str, key_active: bool| -> Vec<Span<'static>> {
             vec![
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(active)),
+                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(key_active)),
                 ),
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
             ]
@@ -994,7 +997,7 @@ impl App {
         let measure_pills = |label_idx: usize| -> usize {
             bindings.iter().map(|(k, l, s)| {
                 let action = if label_idx == 0 { l } else { s };
-                let mut w = spans_width(&pill_full(k, action, false));
+                let mut w = spans_width(&pill_full(k, action, false, false));
                 w += gap().width();
                 w
             }).sum()
@@ -1020,7 +1023,7 @@ impl App {
             Style::new()
                 .fg(mode_fg)
                 .bg(mode_bg)
-                .add_modifier(Modifier::BOLD | selection_modifier(status_active)),
+                .add_modifier(Modifier::BOLD | selection_modifier(is_tab_sel)),
         ));
         spans.push(Span::styled("", Style::new().fg(mode_bg).bg(bar_bg)));
         spans.push(gap());
@@ -1028,9 +1031,9 @@ impl App {
         // ── Keybinding pills ──────────────────────────────────────────────
         for (key, long, short) in bindings {
             match level {
-                0 => spans.extend(pill_full(key, long, status_active)),
-                1 => spans.extend(pill_full(key, short, status_active)),
-                _ => spans.extend(pill_key_only(key, status_active)),
+                0 => spans.extend(pill_full(key, long, is_tab_sel, is_tab_unsel)),
+                1 => spans.extend(pill_full(key, short, is_tab_sel, is_tab_unsel)),
+                _ => spans.extend(pill_key_only(key, is_tab_sel)),
             }
             spans.push(gap());
         }

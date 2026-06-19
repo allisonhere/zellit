@@ -152,7 +152,7 @@ impl PreviewGroup {
         use PreviewElement::*;
         match self {
             Self::TabBar => &[TabSelected, TabUnselected],
-            Self::Panes => &[PaneSelected, TextSelected, TextUnselected, PaneUnselected, PaneHighlight],
+            Self::Panes => &[PaneSelected, TextSelected, PaneUnselected, PaneHighlight],
             Self::Content => &[TableTitle, TableCellSelected, TableCellUnselected, ListSelected, ListUnselected],
             Self::Status => &[ExitSuccess, ExitError],
         }
@@ -167,7 +167,6 @@ pub enum PreviewElement {
     // Left panes
     PaneSelected,
     TextSelected,
-    TextUnselected,
     PaneUnselected,
     // Right pane (highlight) — frame + contents
     PaneHighlight,
@@ -188,7 +187,6 @@ impl PreviewElement {
             TabUnselected,
             PaneSelected,
             TextSelected,
-            TextUnselected,
             PaneUnselected,
             PaneHighlight,
             TableTitle,
@@ -205,7 +203,7 @@ impl PreviewElement {
         use PreviewElement::*;
         match self {
             TabSelected | TabUnselected => PreviewGroup::TabBar,
-            PaneSelected | TextSelected | TextUnselected | PaneUnselected | PaneHighlight => PreviewGroup::Panes,
+            PaneSelected | TextSelected | PaneUnselected | PaneHighlight => PreviewGroup::Panes,
             TableTitle | TableCellSelected | TableCellUnselected | ListSelected | ListUnselected => PreviewGroup::Content,
             ExitSuccess | ExitError => PreviewGroup::Status,
         }
@@ -229,7 +227,6 @@ impl PreviewElement {
         match self {
             Self::TabSelected => ThemeComponentType::RibbonSelected,
             Self::TabUnselected => ThemeComponentType::RibbonUnselected,
-            Self::TextUnselected => ThemeComponentType::TextUnselected,
             Self::PaneSelected => ThemeComponentType::FrameSelected,
             Self::TextSelected => ThemeComponentType::TextSelected,
             Self::PaneHighlight => ThemeComponentType::FrameHighlight,
@@ -248,7 +245,6 @@ impl PreviewElement {
         match self {
             Self::TabSelected => "Tab (Selected)",
             Self::TabUnselected => "Tab (Unselected)",
-            Self::TextUnselected => "Text (Unselected)",
             Self::PaneSelected => "Pane (Selected)",
             Self::TextSelected => "Text (Selected)",
             Self::PaneHighlight => "Pane (Highlight)",
