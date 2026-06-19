@@ -141,12 +141,12 @@ Standard Zellij palette themes (using `fg`, `bg`, `black`, `red`, … keys) are 
 
 | Component | What it styles |
 |-----------|---------------|
-| `text_unselected` / `text_selected` | General text / status bar |
-| `ribbon_unselected` / `ribbon_selected` | Tab bar tabs |
+| `text_unselected` / `text_selected` | Status-bar text — bare UI text / selection text |
+| `ribbon_unselected` / `ribbon_selected` | Tabs and status-bar mode pills |
 | `frame_unselected` / `frame_selected` / `frame_highlight` | Pane borders (FG only — border color) |
 | `table_title` / `table_cell_unselected` / `table_cell_selected` | Table widgets |
 | `list_unselected` / `list_selected` | List widgets |
-| `exit_code_success` / `exit_code_error` | Exit status indicators |
+| `exit_code_success` / `exit_code_error` | Command-pane exit code indicators |
 
 ## Requirements
 

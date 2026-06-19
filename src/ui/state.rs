@@ -128,23 +128,25 @@ impl PreviewAttribute {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PreviewGroup {
     TabBar,
+    StatusBar,
     Panes,
     Content,
-    Status,
+    ExitCodes,
 }
 
 impl PreviewGroup {
-    pub fn all() -> &'static [PreviewGroup; 4] {
+    pub fn all() -> &'static [PreviewGroup; 5] {
         use PreviewGroup::*;
-        &[TabBar, Panes, Content, Status]
+        &[TabBar, StatusBar, Panes, Content, ExitCodes]
     }
 
     pub fn label(&self) -> &'static str {
         match self {
             Self::TabBar => "Tab Bar",
+            Self::StatusBar => "Status Bar",
             Self::Panes => "Panes",
             Self::Content => "Content",
-            Self::Status => "Status",
+            Self::ExitCodes => "Exit Codes",
         }
     }
 
@@ -152,9 +154,10 @@ impl PreviewGroup {
         use PreviewElement::*;
         match self {
             Self::TabBar => &[TabSelected, TabUnselected],
-            Self::Panes => &[PaneSelected, TextSelected, PaneUnselected, PaneHighlight],
+            Self::StatusBar => &[TextUnselected, TextSelected],
+            Self::Panes => &[PaneSelected, PaneUnselected, PaneHighlight],
             Self::Content => &[TableTitle, TableCellSelected, TableCellUnselected, ListSelected, ListUnselected],
-            Self::Status => &[ExitSuccess, ExitError],
+            Self::ExitCodes => &[ExitSuccess, ExitError],
         }
     }
 }
@@ -164,12 +167,14 @@ pub enum PreviewElement {
     // Tab bar
     TabSelected,
     TabUnselected,
-    // Left panes
-    PaneSelected,
+    // Status bar (bare UI text)
+    TextUnselected,
     TextSelected,
+    // Panes (frame borders)
+    PaneSelected,
     PaneUnselected,
-    // Right pane (highlight) — frame + contents
     PaneHighlight,
+    // Pane contents
     TableTitle,
     TableCellSelected,
     TableCellUnselected,
@@ -185,8 +190,9 @@ impl PreviewElement {
         &[
             TabSelected,
             TabUnselected,
-            PaneSelected,
+            TextUnselected,
             TextSelected,
+            PaneSelected,
             PaneUnselected,
             PaneHighlight,
             TableTitle,
@@ -203,9 +209,10 @@ impl PreviewElement {
         use PreviewElement::*;
         match self {
             TabSelected | TabUnselected => PreviewGroup::TabBar,
-            PaneSelected | TextSelected | PaneUnselected | PaneHighlight => PreviewGroup::Panes,
+            TextUnselected | TextSelected => PreviewGroup::StatusBar,
+            PaneSelected | PaneUnselected | PaneHighlight => PreviewGroup::Panes,
             TableTitle | TableCellSelected | TableCellUnselected | ListSelected | ListUnselected => PreviewGroup::Content,
-            ExitSuccess | ExitError => PreviewGroup::Status,
+            ExitSuccess | ExitError => PreviewGroup::ExitCodes,
         }
     }
 
@@ -227,8 +234,9 @@ impl PreviewElement {
         match self {
             Self::TabSelected => ThemeComponentType::RibbonSelected,
             Self::TabUnselected => ThemeComponentType::RibbonUnselected,
-            Self::PaneSelected => ThemeComponentType::FrameSelected,
+            Self::TextUnselected => ThemeComponentType::TextUnselected,
             Self::TextSelected => ThemeComponentType::TextSelected,
+            Self::PaneSelected => ThemeComponentType::FrameSelected,
             Self::PaneHighlight => ThemeComponentType::FrameHighlight,
             Self::PaneUnselected => ThemeComponentType::FrameUnselected,
             Self::TableTitle => ThemeComponentType::TableTitle,
@@ -245,8 +253,9 @@ impl PreviewElement {
         match self {
             Self::TabSelected => "Tab (Selected)",
             Self::TabUnselected => "Tab (Unselected)",
-            Self::PaneSelected => "Pane (Selected)",
+            Self::TextUnselected => "Text (Unselected)",
             Self::TextSelected => "Text (Selected)",
+            Self::PaneSelected => "Pane (Selected)",
             Self::PaneHighlight => "Pane (Highlight)",
             Self::PaneUnselected => "Pane (Unselected)",
             Self::TableTitle => "Table Title",

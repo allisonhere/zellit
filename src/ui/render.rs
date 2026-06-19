@@ -89,8 +89,6 @@ mod tests {
     #[test]
     fn dracula_preview_buffer_carries_expected_theme_styles() {
         let app = dracula_app();
-        let text_unsel_fg = get_fg(ThemeComponentType::TextUnselected, &app.theme);
-        let text_unsel_bg = get_bg(ThemeComponentType::TextUnselected, &app.theme);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
         let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
         let buffer = &frame.buffer;
@@ -99,10 +97,10 @@ mod tests {
         assert_eq!(buffer[tab].fg, rgb(0, 0, 0));
         assert_eq!(buffer[tab].bg, rgb(189, 147, 249));
 
-        let selected_text =
-            find_text(buffer, "projects/").expect("selected text row should be rendered");
-        assert_eq!(buffer[selected_text].fg, text_unsel_fg);
-        assert_eq!(buffer[selected_text].bg, text_unsel_bg);
+        let pane_text =
+            find_text(buffer, "projects/").expect("pane content row should be rendered");
+        assert_eq!(buffer[pane_text].fg, Color::Reset);
+        assert_eq!(buffer[pane_text].bg, Color::Reset);
 
         let table_title =
             find_text(buffer, "Changes staged").expect("table title should be rendered");
@@ -114,7 +112,7 @@ mod tests {
         assert_eq!(buffer[exit_ok].bg, rgb(0, 0, 0));
 
         let empty_pane_cell = &buffer[(26, 8)];
-        assert_eq!(empty_pane_cell.bg, rgb(0, 0, 0));
+        assert_eq!(empty_pane_cell.bg, Color::Reset);
         assert_eq!(empty_pane_cell.fg, Color::Reset);
     }
 
@@ -143,18 +141,18 @@ mod tests {
     }
 
     #[test]
-    fn default_preview_projects_row_uses_unselected_text_colors() {
+    fn default_preview_pane_content_uses_terminal_default_colors() {
+        // Pane interiors are terminal output, not a themed Zellij component —
+        // they must render with the terminal default (Reset) regardless of theme.
         let app = dracula_app();
-        let expected_fg = get_fg(ThemeComponentType::TextUnselected, &app.theme);
-        let expected_bg = get_bg(ThemeComponentType::TextUnselected, &app.theme);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
         let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
         let buffer = &frame.buffer;
 
-        let selected_text =
+        let pane_text =
             find_text(buffer, "projects/").expect("projects row should be rendered");
-        assert_eq!(buffer[selected_text].fg, expected_fg);
-        assert_eq!(buffer[selected_text].bg, expected_bg);
+        assert_eq!(buffer[pane_text].fg, Color::Reset);
+        assert_eq!(buffer[pane_text].bg, Color::Reset);
     }
 
     #[test]
@@ -185,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn text_selected_selection_switches_projects_row_to_selected_text_colors() {
+    fn text_selected_selection_shows_status_bar_selection_sample() {
         let mut app = dracula_app();
         app.selected_element = PreviewElement::TextSelected;
         let expected_fg = get_fg(ThemeComponentType::TextSelected, &app.theme);
@@ -195,7 +193,7 @@ mod tests {
         let buffer = &frame.buffer;
 
         let selected_text =
-            find_text(buffer, "projects/").expect("projects row should be rendered");
+            find_text(buffer, "2/5").expect("status bar should show a text_selected sample");
         assert_eq!(buffer[selected_text].fg, expected_fg);
         assert_eq!(buffer[selected_text].bg, expected_bg);
     }
@@ -548,9 +546,12 @@ impl App {
     }
 
     fn render_zellij_panes(&self, frame: &mut Frame, area: Rect) {
-        let t = &self.theme;
-        let text_fg = get_fg(ThemeComponentType::TextUnselected, t);
-        let canvas_bg = get_bg(ThemeComponentType::TextUnselected, t);
+        // Pane interiors are terminal output: they use the terminal's own
+        // default colors and do NOT change with the Zellij theme. Only the
+        // frame borders and the embedded Zellij widgets (tables/lists/exit
+        // codes) are themed.
+        let text_fg = Color::Reset;
+        let canvas_bg = Color::Reset;
 
         frame.render_widget(Paragraph::new("").style(Style::new().bg(canvas_bg)), area);
 
@@ -569,9 +570,8 @@ impl App {
     fn render_pane_selected(&self, frame: &mut Frame, area: Rect, text_fg: Color) {
         let t = &self.theme;
         let is_editing_border = self.selected_element == PreviewElement::PaneSelected;
-        let is_editing_text = self.selected_element == PreviewElement::TextSelected;
         let flashing = self.is_flashing_off();
-        let pane_bg = get_bg(ThemeComponentType::TextUnselected, t);
+        let pane_bg = Color::Reset;
 
         let dim_color = |c: Color| -> Color {
             if let Color::Rgb(r, g, b) = c {
@@ -602,9 +602,9 @@ impl App {
             BorderType::Double
         };
 
-        let text_sel_fg = get_fg(ThemeComponentType::TextSelected, t);
-        let text_sel_bg = get_bg(ThemeComponentType::TextSelected, t);
-
+        // Pane contents are terminal output — colored by the terminal's own
+        // palette, not by any Zellij theme component. Rendered here only as a
+        // neutral backdrop so the frame colors have something to surround.
         let content = vec![
             Line::from(Span::styled("$ ls", Style::new().fg(text_fg).bg(pane_bg))),
             Line::from(Span::styled(
@@ -612,19 +612,8 @@ impl App {
                 Style::new().fg(text_fg).bg(pane_bg),
             )),
             Line::from(Span::styled(
-                if is_editing_text {
-                    " ▌projects/ ▐ ◀ Text Selected"
-                } else {
-                    " ▌projects/▐ "
-                },
-                if is_editing_text {
-                    Style::new()
-                        .fg(text_sel_fg)
-                        .bg(text_sel_bg)
-                        .add_modifier(Modifier::BOLD | selection_modifier(is_editing_text))
-                } else {
-                    Style::new().fg(text_fg).bg(pane_bg)
-                },
+                "  projects/   pictures/",
+                Style::new().fg(text_fg).bg(pane_bg),
             )),
             Line::from(Span::styled(
                 "  videos/     music/",
@@ -646,7 +635,7 @@ impl App {
     fn render_pane_unselected(&self, frame: &mut Frame, area: Rect, text_fg: Color) {
         let is_editing = self.selected_element == PreviewElement::PaneUnselected;
         let flashing = self.is_flashing_off();
-        let pane_bg = get_bg(ThemeComponentType::TextUnselected, &self.theme);
+        let pane_bg = Color::Reset;
         let border_color = get_fg(ThemeComponentType::FrameUnselected, &self.theme);
         let dim = |c: Color| -> Color {
             if let Color::Rgb(r, g, b) = c {
@@ -704,7 +693,7 @@ impl App {
     fn render_pane_highlight(&self, frame: &mut Frame, area: Rect, text_fg: Color) {
         let t = &self.theme;
         let is_editing_frame = self.is_element_active(PreviewElement::PaneHighlight);
-        let pane_bg = get_bg(ThemeComponentType::TextUnselected, t);
+        let pane_bg = Color::Reset;
         let (border_color, border_type, title) = if is_editing_frame {
             (
                 get_fg(ThemeComponentType::FrameHighlight, t),
@@ -832,12 +821,20 @@ impl App {
         let sel_bg = get_bg(ThemeComponentType::RibbonSelected, t);
         let unsel_fg = get_fg(ThemeComponentType::RibbonUnselected, t);
         let unsel_bg = get_bg(ThemeComponentType::RibbonUnselected, t);
-        // The status bar has no palette of its own — its pills borrow the Tab
-        // (ribbon) colors, so they flash when a Tab element is selected:
-        //   • pill key segments + mode pill → Tab (Selected)   / RibbonSelected
-        //   • pill action segments          → Tab (Unselected) / RibbonUnselected
+        // The status bar is the live preview surface for several components
+        // (per Zellij docs it is bare UI text plus ribbon mode pills):
+        //   • pill key segments + mode pill → Tab (Selected)    / ribbon_selected
+        //   • pill action segments          → Tab (Unselected)  / ribbon_unselected
+        //   • bare info text + bar bg / gaps → Text (Unselected) / text_unselected
+        //   • search-selection sample        → Text (Selected)   / text_selected
         let is_tab_sel = self.is_element_active(PreviewElement::TabSelected);
         let is_tab_unsel = self.is_element_active(PreviewElement::TabUnselected);
+        let is_text_unsel = self.is_element_active(PreviewElement::TextUnselected);
+        let is_text_sel = self.is_element_active(PreviewElement::TextSelected);
+        let show_text_sel = self.selected_element == PreviewElement::TextSelected;
+        let bar_text_fg = get_fg(ThemeComponentType::TextUnselected, t);
+        let text_sel_fg = get_fg(ThemeComponentType::TextSelected, t);
+        let text_sel_bg = get_bg(ThemeComponentType::TextSelected, t);
 
         // Mode label is purely mode-driven; selection feedback is the flash.
         let (mode_label, mode_fg, mode_bg) = match self.input_mode {
@@ -884,7 +881,7 @@ impl App {
             ]
         };
 
-        let gap = || Span::styled(" ", Style::new().bg(bar_bg));
+        let gap = || Span::styled(" ", Style::new().bg(bar_bg).add_modifier(selection_modifier(is_text_unsel)));
 
         // Measure a candidate set of pill spans to get their true rendered width.
         let spans_width = |spans: &[Span]| -> usize { spans.iter().map(|s| s.width()).sum() };
@@ -982,8 +979,11 @@ impl App {
             current_color.g,
             current_color.b,
         );
+        // Reserve room for the text_selected sample chip ("" + " 2/5 " + "").
+        let sample_w = if show_text_sel { 7 } else { 0 };
         let right_w = info.chars().count()
-            + self.message.as_ref().map(|m| m.chars().count() + 3).unwrap_or(0);
+            + self.message.as_ref().map(|m| m.chars().count() + 3).unwrap_or(0)
+            + sample_w;
 
         // mode pill spans (built once, measured)
         let mode_pill_spans: Vec<Span> = vec![
@@ -1053,7 +1053,25 @@ impl App {
 
         let used: usize = spans.iter().map(|s| s.width()).sum();
         let fill = (area.width as usize).saturating_sub(used + right_w);
-        spans.push(Span::styled(" ".repeat(fill), Style::new().bg(bar_bg)));
+        spans.push(Span::styled(
+            " ".repeat(fill),
+            Style::new().bg(bar_bg).add_modifier(selection_modifier(is_text_unsel)),
+        ));
+
+        // text_selected preview: a search-result "paging" chip, shown while the
+        // element is selected so its colors are visible (mirrors real Zellij,
+        // where text_selected styles selection text in the status bar).
+        if show_text_sel {
+            spans.push(Span::styled("", Style::new().fg(text_sel_bg).bg(bar_bg)));
+            spans.push(Span::styled(
+                " 2/5 ",
+                Style::new()
+                    .fg(text_sel_fg)
+                    .bg(text_sel_bg)
+                    .add_modifier(Modifier::BOLD | selection_modifier(is_text_sel)),
+            ));
+            spans.push(Span::styled("", Style::new().fg(text_sel_bg).bg(bar_bg)));
+        }
 
         if let Some(ref msg) = self.message {
             let msg_color = if msg.starts_with('✗') { Color::Red } else { Color::Green };
@@ -1081,12 +1099,13 @@ impl App {
             }
         }
 
+        // The right-side info is bare status-bar text → text_unselected.
         spans.push(Span::styled(
             info,
             Style::new()
-                .fg(Color::Rgb(167, 139, 250))
+                .fg(bar_text_fg)
                 .bg(bar_bg)
-                .add_modifier(Modifier::BOLD),
+                .add_modifier(Modifier::BOLD | selection_modifier(is_text_unsel)),
         ));
 
         frame.render_widget(
