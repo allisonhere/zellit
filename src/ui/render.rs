@@ -827,15 +827,15 @@ impl App {
 
     fn render_zellij_status_bar(&self, frame: &mut Frame, area: Rect) {
         let t = &self.theme;
-        let is_editing_status = self.selected_element == PreviewElement::StatusBar;
         let bar_bg = get_bg(ThemeComponentType::TextUnselected, t);
         let sel_fg = get_fg(ThemeComponentType::RibbonSelected, t);
         let sel_bg = get_bg(ThemeComponentType::RibbonSelected, t);
         let unsel_fg = get_fg(ThemeComponentType::RibbonUnselected, t);
         let unsel_bg = get_bg(ThemeComponentType::RibbonUnselected, t);
+        let status_active = self.is_element_active(PreviewElement::TextUnselected);
 
         // Mode label changes based on app state and selection
-        let (mode_label, mode_fg, mode_bg) = if is_editing_status {
+        let (mode_label, mode_fg, mode_bg) = if status_active {
             (" STATUS ", sel_fg, sel_bg)
         } else {
             match self.input_mode {
@@ -854,28 +854,28 @@ impl App {
             }
         };
 
-        let pill_full = |key: &str, action: &str| -> Vec<Span<'static>> {
+        let pill_full = |key: &str, action: &str, active: bool| -> Vec<Span<'static>> {
             vec![
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD),
+                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(active)),
                 ),
                 Span::styled("", Style::new().fg(unsel_bg).bg(sel_bg)),
                 Span::styled(
                     format!(" {} ", action),
-                    Style::new().fg(unsel_fg).bg(unsel_bg),
+                    Style::new().fg(unsel_fg).bg(unsel_bg).add_modifier(selection_modifier(active)),
                 ),
                 Span::styled("", Style::new().fg(unsel_bg).bg(bar_bg)),
             ]
         };
 
-        let pill_key_only = |key: &str| -> Vec<Span<'static>> {
+        let pill_key_only = |key: &str, active: bool| -> Vec<Span<'static>> {
             vec![
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD),
+                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(active)),
                 ),
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
             ]
@@ -994,14 +994,14 @@ impl App {
         let measure_pills = |label_idx: usize| -> usize {
             bindings.iter().map(|(k, l, s)| {
                 let action = if label_idx == 0 { l } else { s };
-                let mut w = spans_width(&pill_full(k, action));
+                let mut w = spans_width(&pill_full(k, action, false));
                 w += gap().width();
                 w
             }).sum()
         };
         let measure_keys_only = || -> usize {
             bindings.iter().map(|(k, _, _)| {
-                spans_width(&pill_key_only(k)) + gap().width()
+                spans_width(&pill_key_only(k, false)) + gap().width()
             }).sum()
         };
 
@@ -1020,7 +1020,7 @@ impl App {
             Style::new()
                 .fg(mode_fg)
                 .bg(mode_bg)
-                .add_modifier(Modifier::BOLD | selection_modifier(is_editing_status)),
+                .add_modifier(Modifier::BOLD | selection_modifier(status_active)),
         ));
         spans.push(Span::styled("", Style::new().fg(mode_bg).bg(bar_bg)));
         spans.push(gap());
@@ -1028,9 +1028,9 @@ impl App {
         // ── Keybinding pills ──────────────────────────────────────────────
         for (key, long, short) in bindings {
             match level {
-                0 => spans.extend(pill_full(key, long)),
-                1 => spans.extend(pill_full(key, short)),
-                _ => spans.extend(pill_key_only(key)),
+                0 => spans.extend(pill_full(key, long, status_active)),
+                1 => spans.extend(pill_full(key, short, status_active)),
+                _ => spans.extend(pill_key_only(key, status_active)),
             }
             spans.push(gap());
         }
