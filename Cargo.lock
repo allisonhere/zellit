@@ -2374,7 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "zellit"
-version = "0.6.0"
+version = "1.0.1"
 dependencies = [
  "crossterm",
  "dirs",
