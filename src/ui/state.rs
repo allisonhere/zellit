@@ -132,12 +132,13 @@ pub enum PreviewGroup {
     Panes,
     Content,
     ExitCodes,
+    Multiplayer,
 }
 
 impl PreviewGroup {
-    pub fn all() -> &'static [PreviewGroup; 5] {
+    pub fn all() -> &'static [PreviewGroup; 6] {
         use PreviewGroup::*;
-        &[TabBar, StatusBar, Panes, Content, ExitCodes]
+        &[TabBar, StatusBar, Panes, Content, ExitCodes, Multiplayer]
     }
 
     pub fn label(&self) -> &'static str {
@@ -147,6 +148,7 @@ impl PreviewGroup {
             Self::Panes => "Panes",
             Self::Content => "Content",
             Self::ExitCodes => "Exit Codes",
+            Self::Multiplayer => "Multiplayer",
         }
     }
 
@@ -158,6 +160,10 @@ impl PreviewGroup {
             Self::Panes => &[PaneSelected, PaneUnselected, PaneHighlight],
             Self::Content => &[TableTitle, TableCellSelected, TableCellUnselected, ListSelected, ListUnselected],
             Self::ExitCodes => &[ExitSuccess, ExitError],
+            Self::Multiplayer => &[
+                Player1, Player2, Player3, Player4, Player5,
+                Player6, Player7, Player8, Player9, Player10,
+            ],
         }
     }
 }
@@ -182,6 +188,17 @@ pub enum PreviewElement {
     ListUnselected,
     ExitSuccess,
     ExitError,
+    // Multiplayer cursor / pane-border colors for other connected clients
+    Player1,
+    Player2,
+    Player3,
+    Player4,
+    Player5,
+    Player6,
+    Player7,
+    Player8,
+    Player9,
+    Player10,
 }
 
 impl PreviewElement {
@@ -202,6 +219,16 @@ impl PreviewElement {
             ListUnselected,
             ExitSuccess,
             ExitError,
+            Player1,
+            Player2,
+            Player3,
+            Player4,
+            Player5,
+            Player6,
+            Player7,
+            Player8,
+            Player9,
+            Player10,
         ]
     }
 
@@ -213,11 +240,20 @@ impl PreviewElement {
             PaneSelected | PaneUnselected | PaneHighlight => PreviewGroup::Panes,
             TableTitle | TableCellSelected | TableCellUnselected | ListSelected | ListUnselected => PreviewGroup::Content,
             ExitSuccess | ExitError => PreviewGroup::ExitCodes,
+            Player1 | Player2 | Player3 | Player4 | Player5
+            | Player6 | Player7 | Player8 | Player9 | Player10 => PreviewGroup::Multiplayer,
         }
     }
 
-    pub fn is_frame(&self) -> bool {
-        matches!(self, Self::PaneSelected | Self::PaneUnselected | Self::PaneHighlight)
+    /// True for elements that edit a single color rather than an FG/BG pair
+    /// (pane frame borders, and multiplayer player colors).
+    pub fn is_single_color(&self) -> bool {
+        matches!(
+            self,
+            Self::PaneSelected | Self::PaneUnselected | Self::PaneHighlight
+                | Self::Player1 | Self::Player2 | Self::Player3 | Self::Player4 | Self::Player5
+                | Self::Player6 | Self::Player7 | Self::Player8 | Self::Player9 | Self::Player10
+        )
     }
 
     /// Where should the color picker open so the selected element stays visible?
@@ -246,6 +282,16 @@ impl PreviewElement {
             Self::ListUnselected => ThemeComponentType::ListUnselected,
             Self::ExitSuccess => ThemeComponentType::ExitCodeSuccess,
             Self::ExitError => ThemeComponentType::ExitCodeError,
+            Self::Player1 => ThemeComponentType::Player1,
+            Self::Player2 => ThemeComponentType::Player2,
+            Self::Player3 => ThemeComponentType::Player3,
+            Self::Player4 => ThemeComponentType::Player4,
+            Self::Player5 => ThemeComponentType::Player5,
+            Self::Player6 => ThemeComponentType::Player6,
+            Self::Player7 => ThemeComponentType::Player7,
+            Self::Player8 => ThemeComponentType::Player8,
+            Self::Player9 => ThemeComponentType::Player9,
+            Self::Player10 => ThemeComponentType::Player10,
         }
     }
 
@@ -265,6 +311,16 @@ impl PreviewElement {
             Self::ListUnselected => "List (Unselected)",
             Self::ExitSuccess => "Exit (Success)",
             Self::ExitError => "Exit (Error)",
+            Self::Player1 => "Player 1",
+            Self::Player2 => "Player 2",
+            Self::Player3 => "Player 3",
+            Self::Player4 => "Player 4",
+            Self::Player5 => "Player 5",
+            Self::Player6 => "Player 6",
+            Self::Player7 => "Player 7",
+            Self::Player8 => "Player 8",
+            Self::Player9 => "Player 9",
+            Self::Player10 => "Player 10",
         }
     }
 }
@@ -346,7 +402,7 @@ impl App {
         let next_idx = if idx == 0 { all.len() - 1 } else { idx - 1 };
         self.selected_element = all[next_idx];
         self.selected_group = all[next_idx].group();
-        if self.selected_element.is_frame() {
+        if self.selected_element.is_single_color() {
             self.selected_attribute = PreviewAttribute::Base;
         }
         self.flash_selection();
@@ -359,7 +415,7 @@ impl App {
         let next_idx = (idx + 1) % all.len();
         self.selected_element = all[next_idx];
         self.selected_group = all[next_idx].group();
-        if self.selected_element.is_frame() {
+        if self.selected_element.is_single_color() {
             self.selected_attribute = PreviewAttribute::Base;
         }
         self.flash_selection();

@@ -319,8 +319,50 @@ impl App {
 
         self.render_sidebar_tree(frame, sidebar);
         self.render_zellij_tab_bar(frame, tab_bar);
-        self.render_zellij_panes(frame, main);
+        if self.selected_group == super::state::PreviewGroup::Multiplayer {
+            self.render_multiplayer_panel(frame, main);
+        } else {
+            self.render_zellij_panes(frame, main);
+        }
         self.render_zellij_status_bar(frame, status_bar);
+    }
+
+    /// Preview for the Multiplayer group: each `player_N` slot colors the
+    /// pane border / cursor Zellij shows for that connected client, so there's
+    /// no single mockup element to recolor — show them as a labeled swatch list.
+    fn render_multiplayer_panel(&self, frame: &mut Frame, area: Rect) {
+        let t = &self.theme;
+        frame.render_widget(Paragraph::new("").style(Style::new().bg(Color::Reset)), area);
+
+        let block = Block::bordered()
+            .title(" Multiplayer — other clients' pane border & cursor colors ")
+            .border_style(Style::new().fg(Color::Rgb(120, 120, 140)));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let [left, right] =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(inner);
+        let left_rows: [Rect; 5] = Layout::vertical([Constraint::Length(1); 5]).areas(left);
+        let right_rows: [Rect; 5] = Layout::vertical([Constraint::Length(1); 5]).areas(right);
+
+        let flashing = self.is_flashing_off();
+        for (i, elem) in super::state::PreviewGroup::Multiplayer.fields().iter().enumerate() {
+            let row = if i < 5 { left_rows[i] } else { right_rows[i - 5] };
+            let color = get_fg(elem.component_type(), t);
+            let active = self.is_element_active(*elem);
+            let label_style = if active {
+                Style::new().fg(Color::Rgb(242, 240, 255)).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(Color::Rgb(170, 170, 190))
+            };
+            let marker = if self.selected_element == *elem && flashing { "○" } else { "●" };
+            let line = Line::from(vec![
+                Span::raw(" "),
+                Span::styled(marker, Style::new().fg(color)),
+                Span::styled(format!(" {}", elem.label()), label_style),
+            ]);
+            frame.render_widget(Paragraph::new(line), row);
+        }
     }
 
     // ── Sidebar tree ─────────────────────────────────────────────────────
@@ -354,7 +396,7 @@ impl App {
                 let bg = get_bg(f.component_type(), t);
                 let fg_ct = accent_on(fg);
                 let bg_ct = accent_on(bg);
-                let has_bg = !f.is_frame();
+                let has_bg = !f.is_single_color();
 
                 if selected {
                     let mut spans = vec![
@@ -406,7 +448,7 @@ impl App {
 
         // hint at bottom
         lines.push(Line::from(Span::styled(
-            "  / find · 1-4 jump",
+            "  / find · 1-5 jump",
             Style::new().fg(MUTED).bg(BG),
         )));
 
@@ -899,7 +941,7 @@ impl App {
                 ("q",    "QUIT",       "QT"),
             ],
             InputMode::ColorPicker => {
-                let show_fg_bg = !self.selected_element.is_frame();
+                let show_fg_bg = !self.selected_element.is_single_color();
                 if show_fg_bg {
                     const ALL: &[(&str, &str, &str)] = &[
                         ("tab", "FOCUS", "TAB"),
@@ -1580,7 +1622,7 @@ impl App {
             Span::styled(" M ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
             Span::styled(" switch  ", Style::new().fg(OB_MUTED)),
         ];
-        if !self.selected_element.is_frame() {
+        if !self.selected_element.is_single_color() {
             row1.push(Span::styled(" F ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)));
             row1.push(Span::styled(" fg/bg  ", Style::new().fg(OB_MUTED)));
         }
@@ -1674,7 +1716,7 @@ impl App {
         let rows: &[HelpRow<'_>] = &[
             HelpRow::Section("Preview"),
             HelpRow::Entry("↑/j  ↓/k", "Navigate preview elements"),
-            HelpRow::Entry("1–4", "Jump to group (TabBar/Panes/Content/Status)"),
+            HelpRow::Entry("1–5", "Jump to group (TabBar/Status/Panes/Content/Multiplayer)"),
             HelpRow::Entry("/", "Fuzzy search and jump to any element"),
             HelpRow::Entry("Tab", "Toggle FG / BG (pane borders: FG only)"),
             HelpRow::Entry("c", "Open color picker for selected color"),

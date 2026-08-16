@@ -151,12 +151,30 @@ impl Default for Theme {
             ThemeComponentType::ExitCodeError,
             ThemeComponent::new(RgbColor::new(255, 100, 100), RgbColor::new(30, 30, 30)),
         );
+        for (player, color) in ThemeComponentType::players().iter().zip(DEFAULT_PLAYER_COLORS) {
+            components.insert(*player, ThemeComponent::new(color, RgbColor::new(0, 0, 0)));
+        }
         Self {
             name: String::from("default"),
             components,
         }
     }
 }
+
+/// Default colors for the 10 multiplayer cursor/border slots, used when a
+/// theme file has no `multiplayer_user_colors` block of its own.
+const DEFAULT_PLAYER_COLORS: [RgbColor; 10] = [
+    RgbColor { r: 220, g: 80, b: 200 },  // player_1 — magenta
+    RgbColor { r: 80, g: 140, b: 220 },  // player_2 — blue
+    RgbColor { r: 150, g: 90, b: 210 },  // player_3 — purple
+    RgbColor { r: 220, g: 200, b: 80 },  // player_4 — yellow
+    RgbColor { r: 80, g: 200, b: 200 },  // player_5 — cyan
+    RgbColor { r: 210, g: 180, b: 70 },  // player_6 — gold
+    RgbColor { r: 220, g: 80, b: 80 },   // player_7 — red
+    RgbColor { r: 190, g: 190, b: 200 }, // player_8 — silver
+    RgbColor { r: 230, g: 150, b: 190 }, // player_9 — pink
+    RgbColor { r: 150, g: 100, b: 70 },  // player_10 — brown
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ThemeComponentType {
@@ -174,6 +192,21 @@ pub enum ThemeComponentType {
     FrameHighlight,
     ExitCodeSuccess,
     ExitCodeError,
+    // Multiplayer cursor / pane-border colors for other connected clients.
+    // Only `ThemeComponent::base` is used for these — they are single
+    // colors, not FG/BG pairs — and they're kept out of `all()` because
+    // they serialize to their own `multiplayer_user_colors` KDL block
+    // instead of a `{ base; background; emphasis_0..3 }` declaration.
+    Player1,
+    Player2,
+    Player3,
+    Player4,
+    Player5,
+    Player6,
+    Player7,
+    Player8,
+    Player9,
+    Player10,
 }
 
 impl ThemeComponentType {
@@ -194,6 +227,16 @@ impl ThemeComponentType {
             Self::FrameHighlight => "Frame Highlight",
             Self::ExitCodeSuccess => "Exit Code (Success)",
             Self::ExitCodeError => "Exit Code (Error)",
+            Self::Player1 => "Player 1",
+            Self::Player2 => "Player 2",
+            Self::Player3 => "Player 3",
+            Self::Player4 => "Player 4",
+            Self::Player5 => "Player 5",
+            Self::Player6 => "Player 6",
+            Self::Player7 => "Player 7",
+            Self::Player8 => "Player 8",
+            Self::Player9 => "Player 9",
+            Self::Player10 => "Player 10",
         }
     }
 
@@ -213,9 +256,21 @@ impl ThemeComponentType {
             Self::FrameHighlight => "frame_highlight",
             Self::ExitCodeSuccess => "exit_code_success",
             Self::ExitCodeError => "exit_code_error",
+            Self::Player1 => "player_1",
+            Self::Player2 => "player_2",
+            Self::Player3 => "player_3",
+            Self::Player4 => "player_4",
+            Self::Player5 => "player_5",
+            Self::Player6 => "player_6",
+            Self::Player7 => "player_7",
+            Self::Player8 => "player_8",
+            Self::Player9 => "player_9",
+            Self::Player10 => "player_10",
         }
     }
 
+    /// The 14 standard FG/BG style declarations. Excludes the multiplayer
+    /// player colors, which have their own KDL shape — see [`Self::players`].
     pub fn all() -> &'static [Self] {
         &[
             Self::TextUnselected,
@@ -232,6 +287,22 @@ impl ThemeComponentType {
             Self::FrameHighlight,
             Self::ExitCodeSuccess,
             Self::ExitCodeError,
+        ]
+    }
+
+    /// The 10 multiplayer cursor/border color slots, in `player_1..player_10` order.
+    pub fn players() -> &'static [Self; 10] {
+        &[
+            Self::Player1,
+            Self::Player2,
+            Self::Player3,
+            Self::Player4,
+            Self::Player5,
+            Self::Player6,
+            Self::Player7,
+            Self::Player8,
+            Self::Player9,
+            Self::Player10,
         ]
     }
 }

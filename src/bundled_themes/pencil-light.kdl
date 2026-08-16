@@ -112,5 +112,17 @@ themes {
             emphasis_2 0 0 0
             emphasis_3 0 0 0
         }
+        multiplayer_user_colors {
+            player_1 182 214 253
+            player_2 0 142 196
+            player_3 0 0 0
+            player_4 168 156 20
+            player_5 32 165 186
+            player_6 0 0 0
+            player_7 182 214 253
+            player_8 0 0 0
+            player_9 0 0 0
+            player_10 0 0 0
+        }
     }
 }

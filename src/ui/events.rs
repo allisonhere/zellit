@@ -21,7 +21,7 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                 }
                 KeyCode::Tab => {
                     app.message = None;
-                    if !app.selected_element.is_frame() {
+                    if !app.selected_element.is_single_color() {
                         app.selected_attribute.cycle();
                     }
                 }
@@ -39,6 +39,10 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                 }
                 KeyCode::Char('4') => {
                     app.select_group_index(3);
+                    app.message = None;
+                }
+                KeyCode::Char('5') => {
+                    app.select_group_index(5);
                     app.message = None;
                 }
                 KeyCode::Char('/') => {
@@ -145,7 +149,7 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                         app.color_editor.focus_next(false);
                     }
                     KeyCode::Char('f') => {
-                        if !app.selected_element.is_frame() {
+                        if !app.selected_element.is_single_color() {
                             app.switch_editing_attribute();
                         }
                     }

@@ -13,6 +13,7 @@ A terminal UI for creating, editing, and applying [Zellij](https://zellij.dev) t
 - **Live preview** — see every color change reflected instantly across a full Zellij-layout mockup
 - **41 built-in themes** — all official Zellij themes bundled, no extra files needed
 - **Per-component theming** — control foreground and background for each UI element independently
+- **Multiplayer colors** — edit the 10 `player_1`–`player_10` cursor/pane-border colors Zellij shows for other clients in a shared session
 - **Dual-mode color picker** — RGB sliders plus an HSL field picker with live HEX/RGB/HSL values
 - **Yank / paste / undo** — copy a color, paste it elsewhere, or undo the last change (`y` / `p` / `u`)
 - **Theme loader** — fuzzy search, filter by built-in or saved, live preview on scroll
@@ -66,7 +67,7 @@ The app opens a full-terminal preview of a Zellij layout. Use the keyboard to na
 | Key | Action |
 |-----|--------|
 | `↑ ↓` / `j k` | Move through the sidebar tree of preview elements |
-| `1`–`4` | Jump to a group (TabBar / Panes / Content / Status) |
+| `1`–`5` | Jump to a group (TabBar / StatusBar / Panes / Content / Multiplayer) |
 | `/` | Fuzzy-search and jump to any element |
 | `Tab` | Toggle FG / BG (not available on pane borders) |
 | `c` / `Enter` | Open color picker for the selected color |
@@ -131,6 +132,10 @@ themes {
             emphasis_3 100 100 100
         }
         // text_unselected, ribbon_unselected, frame_selected, … etc.
+        multiplayer_user_colors {
+            player_1 255 121 198
+            // … player_2 through player_10
+        }
     }
 }
 ```
@@ -147,6 +152,7 @@ Standard Zellij palette themes (using `fg`, `bg`, `black`, `red`, … keys) are 
 | `table_title` / `table_cell_unselected` / `table_cell_selected` | Table widgets |
 | `list_unselected` / `list_selected` | List widgets |
 | `exit_code_success` / `exit_code_error` | Command-pane exit code indicators |
+| `multiplayer_user_colors` (`player_1`–`player_10`) | Pane border / cursor color shown for each other connected client in a shared session |
 
 ## Requirements
 

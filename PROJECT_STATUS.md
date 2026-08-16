@@ -1,19 +1,22 @@
-# Zellij Tab Config TUI
+# zellit
 
-A terminal UI application for configuring Zellij tab bar themes.
+A terminal UI application for creating, editing, and applying Zellij themes.
 
-## Project Location
-
-```
-/home/allie/projects/zellit/
-```
+> Formerly `zellij-tab-config` / `zellij-bar-theme-config`. See README.md for
+> install instructions, full keybindings, and the theme file format — this
+> doc is a quick internal map of the source layout and current feature set.
 
 ## Files
 
-- `src/main.rs` - Entry point
-- `src/theme/mod.rs` - Theme data structures (RgbColor, ThemeComponent, Theme, ThemeComponentType)
-- `src/config/mod.rs` - ConfigManager for KDL file parsing/saving
-- `src/ui/mod.rs` - Main UI logic (preview, color picker)
+- `src/main.rs` — entry point, wires up `theme` / `config` / `ui` / `update` / `bundled_themes`
+- `src/theme/mod.rs` — theme data structures (`RgbColor`, `ThemeComponent`, `Theme`, `ThemeComponentType`)
+- `src/config/mod.rs` — `ConfigManager` for KDL theme file parsing/saving, plus `config.kdl` apply logic
+- `src/ui/state.rs` — `App` state, `PreviewGroup`/`PreviewElement` navigation model, color editing/undo/yank
+- `src/ui/render.rs` — all ratatui rendering: sidebar tree, live preview, color picker overlay, theme loader, help/about screens
+- `src/ui/events.rs` — keyboard/mouse input handling per `InputMode`
+- `src/ui/color_picker.rs` — `ColorEditor` (RGB sliders + HSL field picker) and its layout math
+- `src/update.rs` — in-app self-update against GitHub releases (Linux x86_64)
+- `src/bundled_themes.rs` + `src/bundled_themes/*.kdl` — all 41 official Zellij themes, embedded via `include_str!`
 
 ## Dependencies
 
@@ -25,70 +28,61 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
 thiserror = "2"
+ureq = { version = "2", features = ["json"] }
+palette = { version = "0.7", default-features = false, features = ["std"] }
 ```
 
 ## Features
 
 ### Navigation
-- **Arrow keys** - Navigate between UI elements in the preview
-- **Tab** - Toggle between foreground/background color editing
-- **c** - Open RGB color picker
-- **Enter** - Apply color changes
-- **Esc** - Cancel/close picker
-- **s** - Open save-as prompt for a named theme
-- **l** - Load an existing saved theme
-- **q** - Quit
 
-### Color Picker (pik-style)
-- **Up/Down** - Select RGB channel to edit
-- **Left/Right** - Adjust selected channel value (by 5)
-- **Tab** - Switch between fg/bg (remembers state)
-- Visual sliders with `█` and `░` characters
+- **↑ ↓ / j k** — move through the sidebar tree of preview elements
+- **1–5** — jump straight to a group (TabBar / StatusBar / Panes / Content / Multiplayer)
+- **/** — fuzzy-search and jump to any element
+- **Tab** — toggle FG/BG (not available on pane borders or multiplayer player colors — those are single-color)
+- **c** / **Enter** — open the color picker for the selected color
+- **y / p / u** — yank, paste, undo a color
+- **s** — save-as prompt for a named theme
+- **l** — open the theme loader (fuzzy search, filter by built-in/saved, rename `r`, delete `d`)
+- **a** — apply the current theme to Zellij
+- **U** — install the latest release when available (Linux x86_64)
+- **?** — help overlay; **A** — about screen; **q / Esc** — quit
+
+### Color Picker
+
+Dual-mode: RGB sliders (pik-style, `█`/`░` bars) or an HSL field with live HEX/RGB/HSL values.
+`m` toggles mode, `f` toggles FG/BG (non-single-color elements only), `#` jumps to hex entry,
+mouse drag works in the HSL field and lightness slider.
 
 ### Editable Elements
 
-| Element | Description |
-|---------|-------------|
-| Tab (Selected) | Selected tab in tab bar |
-| Tab (Unselected) | Unselected tabs in tab bar |
-| Status Bar | Status bar including "Locked" indicator |
-| Pane (Selected) | Selected pane frame |
-| Pane (Highlight) | Highlighted pane frame |
-| Pane (Unselected) | Unselected pane frame |
-| List Item (Selected) | Selected list item |
-| List Item (Unselected) | Unselected list item |
-| Exit Code (Success) | Success exit code display |
-| Exit Code (Error) | Error exit code display |
+| Group | Elements |
+|-------|----------|
+| Tab Bar | Tab (Selected), Tab (Unselected) |
+| Status Bar | Text (Unselected), Text (Selected) |
+| Panes | Pane (Selected), Pane (Unselected), Pane (Highlight) — **FG only**, border color |
+| Content | Table Title, Table Cell (Selected/Unselected), List (Selected/Unselected) |
+| Exit Codes | Exit (Success), Exit (Error) |
+| Multiplayer | Player 1 – Player 10 — **FG only**, single color each |
 
 ## Theme Components
 
-Each element has:
-- **Foreground (base)** - Primary text color
-- **Background** - Background color
+Each of the 14 standard components (`text_unselected`, `text_selected`, `ribbon_unselected`,
+`ribbon_selected`, `table_title`, `table_cell_unselected`, `table_cell_selected`,
+`list_unselected`, `list_selected`, `frame_unselected`, `frame_selected`, `frame_highlight`,
+`exit_code_success`, `exit_code_error`) has:
 
-Zellij theme format supports additional emphasis levels (0-3) but these are not currently editable in this UI.
+- **base** — foreground/primary color
+- **background**
+- **emphasis_0..3** — additional emphasis levels (not currently editable in this UI)
 
-## Color Preview
-
-When editing, the preview panel shows:
-- Current element name and selected attribute
-- Hex color value
-- Yellow `◄` indicator on selected element
-
-## Color Picker Preview
-
-Shows styled text samples with:
-- Tab name
-- Status text
-- List item
-- Exit code
-
-Uses the other attribute's color as context (e.g., editing FG shows new color on current BG).
+`multiplayer_user_colors` is a separate 10-entry block (`player_1`..`player_10`), each a single
+RGB color — no FG/BG pair, no emphasis levels. It's the pane-border/cursor color Zellij shows for
+other clients connected to the same shared session.
 
 ## Running
 
 ```bash
-cd /home/allie/projects/zellit
 cargo run
 ```
 
@@ -107,17 +101,26 @@ themes {
             emphasis_2 150 150 150
             emphasis_3 100 100 100
         }
-        // ... more components
+        // ... other 13 standard components
+        multiplayer_user_colors {
+            player_1 255 121 198
+            // ... player_2 through player_10
+        }
     }
 }
 ```
 
+Palette-style themes (`fg`, `bg`, `black`, `red`, … keys instead of explicit component blocks) are
+also supported — `theme_from_palette` derives all 14 components and the 10 player colors from the
+named palette entries.
+
 ## TODO / Known Issues
 
-- [ ] KDL parsing functions exist but not fully wired up for loading existing themes
-- [ ] Could add more color adjustment (shift+arrow for finer control)
-- [ ] Could add theme reset functionality
-- [ ] Unused code warnings for `ColorAttribute`, some config methods
+- [ ] No "reset whole theme to default" action (per-edit cancel via `Esc` in the color picker
+      already reverts a single in-progress change)
+- [ ] `emphasis_0..3` levels remain unexposed in the UI (parsed/preserved, not editable)
+- [ ] Single-value (8-bit ANSI index 0–15) color entries in KDL are supported when *loading*
+      themes, but zellit always *writes* full RGB triples
 
 ## Inspiration
 

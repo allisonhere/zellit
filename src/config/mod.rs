@@ -223,6 +223,10 @@ pub fn parse_theme_kdl(content: &str, name: &str) -> Result<Theme, ConfigError> 
 
     apply_missing_component_fallbacks(&mut theme, &seen);
 
+    if let Some(mp_node) = children.iter().find(|n| n.name().value() == "multiplayer_user_colors") {
+        apply_multiplayer_colors(&mut theme, mp_node, &palette);
+    }
+
     Ok(theme)
 }
 
@@ -306,6 +310,14 @@ fn apply_missing_component_fallbacks(theme: &mut Theme, seen: &HashSet<ThemeComp
     }
 }
 
+fn blend_color(a: RgbColor, b: RgbColor) -> RgbColor {
+    RgbColor::new(
+        ((u16::from(a.r) + u16::from(b.r)) / 2) as u8,
+        ((u16::from(a.g) + u16::from(b.g)) / 2) as u8,
+        ((u16::from(a.b) + u16::from(b.b)) / 2) as u8,
+    )
+}
+
 fn theme_from_palette(nodes: &[kdl::KdlNode], name: &str) -> Theme {
     let black   = parse_palette_color(nodes, "black")  .unwrap_or(RgbColor::new(30, 30, 30));
     let fg      = parse_palette_color(nodes, "fg")     .unwrap_or(RgbColor::new(200, 200, 200));
@@ -315,7 +327,8 @@ fn theme_from_palette(nodes: &[kdl::KdlNode], name: &str) -> Theme {
     let green   = parse_palette_color(nodes, "green")  .unwrap_or(RgbColor::new(80, 200, 80));
     let yellow  = parse_palette_color(nodes, "yellow") .unwrap_or(RgbColor::new(220, 190, 100));
     let blue    = parse_palette_color(nodes, "blue")   .unwrap_or(RgbColor::new(80, 130, 210));
-    let _magenta = parse_palette_color(nodes, "magenta").unwrap_or(RgbColor::new(180, 100, 200));
+    let magenta = parse_palette_color(nodes, "magenta").unwrap_or(RgbColor::new(180, 100, 200));
+    let cyan    = parse_palette_color(nodes, "cyan")   .unwrap_or(RgbColor::new(80, 200, 200));
     let orange  = parse_palette_color(nodes, "orange") .unwrap_or(yellow);
 
     // A slightly lighter bg for "selected" backgrounds
@@ -350,9 +363,63 @@ fn theme_from_palette(nodes: &[kdl::KdlNode], name: &str) -> Theme {
     components.insert(ThemeComponentType::ExitCodeSuccess,      mk(green,   bg));
     components.insert(ThemeComponentType::ExitCodeError,        mk(red,     bg));
 
-    Theme {
+    let mk_player = |base: RgbColor| ThemeComponent::new(base, RgbColor::new(0, 0, 0));
+    components.insert(ThemeComponentType::Player1, mk_player(magenta));
+    components.insert(ThemeComponentType::Player2, mk_player(blue));
+    components.insert(ThemeComponentType::Player3, mk_player(blend_color(magenta, blue)));
+    components.insert(ThemeComponentType::Player4, mk_player(yellow));
+    components.insert(ThemeComponentType::Player5, mk_player(cyan));
+    components.insert(ThemeComponentType::Player6, mk_player(blend_color(yellow, orange)));
+    components.insert(ThemeComponentType::Player7, mk_player(red));
+    components.insert(ThemeComponentType::Player8, mk_player(blend_color(white, black)));
+    components.insert(ThemeComponentType::Player9, mk_player(blend_color(magenta, white)));
+    components.insert(ThemeComponentType::Player10, mk_player(blend_color(red, black)));
+
+    let mut theme = Theme {
         name: name.to_string(),
         components,
+    };
+
+    if let Some(mp_node) = nodes.iter().find(|n| n.name().value() == "multiplayer_user_colors") {
+        let palette = build_scalar_palette(nodes);
+        apply_multiplayer_colors(&mut theme, mp_node, &palette);
+    }
+
+    theme
+}
+
+/// Parses a `multiplayer_user_colors { player_1 r g b; ... }` node (Zellij's
+/// per-connected-client cursor/pane-border colors) and writes each `player_N`
+/// into the theme's `ThemeComponentType::PlayerN` base color. Missing or
+/// unparsable entries are left at their existing (default) value.
+fn apply_multiplayer_colors(theme: &mut Theme, node: &kdl::KdlNode, palette: &[RgbColor; 16]) {
+    let children: Vec<_> = node
+        .children()
+        .as_ref()
+        .map(|d| d.nodes().to_vec())
+        .unwrap_or_default();
+
+    for player in ThemeComponentType::players() {
+        let Some(child) = children.iter().find(|n| n.name().value() == player.component_key()) else {
+            continue;
+        };
+        let entries: Vec<_> = child.entries().iter().collect();
+        let color = match entries.len() {
+            1 => {
+                let idx = entries[0].value().as_i64().unwrap_or(-1);
+                (0..=15).contains(&idx).then(|| palette[idx as usize])
+            }
+            3.. => {
+                let r = entries[0].value().as_i64().unwrap_or(0).clamp(0, 255) as u8;
+                let g = entries[1].value().as_i64().unwrap_or(0).clamp(0, 255) as u8;
+                let b = entries[2].value().as_i64().unwrap_or(0).clamp(0, 255) as u8;
+                Some(RgbColor::new(r, g, b))
+            }
+            _ => None,
+        };
+        if let Some(c) = color {
+            theme.get_mut(*player).base = c;
+        }
     }
 }
 
@@ -455,6 +522,16 @@ fn theme_to_kdl(theme: &Theme) -> String {
         output.push_str("        }\n");
     }
 
+    output.push_str("        multiplayer_user_colors {\n");
+    for player in ThemeComponentType::players() {
+        let c = theme.get(*player).base;
+        output.push_str(&format!(
+            "            {} {} {} {}\n",
+            player.component_key(), c.r, c.g, c.b
+        ));
+    }
+    output.push_str("        }\n");
+
     output.push_str("    }\n");
     output.push_str("}\n");
     output
@@ -483,6 +560,57 @@ mod tests {
             loaded.get(ThemeComponentType::TextSelected).base,
             RgbColor::new(9, 8, 7)
         );
+    }
+
+    #[test]
+    fn multiplayer_colors_round_trip_through_save_and_load() {
+        let mut theme = Theme::default();
+        theme.name = "mp-round-trip".to_string();
+        theme.get_mut(ThemeComponentType::Player3).base = RgbColor::new(11, 22, 33);
+        theme.get_mut(ThemeComponentType::Player10).base = RgbColor::new(44, 55, 66);
+
+        let saved = theme_to_kdl(&theme);
+        assert!(saved.contains("multiplayer_user_colors"));
+        let loaded = parse_theme_kdl(&saved, &theme.name).expect("saved theme should parse");
+
+        assert_eq!(loaded.get(ThemeComponentType::Player3).base, RgbColor::new(11, 22, 33));
+        assert_eq!(loaded.get(ThemeComponentType::Player10).base, RgbColor::new(44, 55, 66));
+    }
+
+    #[test]
+    fn missing_multiplayer_colors_fall_back_to_defaults_without_panicking() {
+        // A theme file with no multiplayer_user_colors block at all (as all
+        // bundled themes had before it was backfilled) must still resolve
+        // every player slot to a usable default instead of panicking.
+        let kdl = r#"
+            themes {
+                no-multiplayer-block {
+                    text_unselected {
+                        base 200 200 200
+                        background 30 30 30
+                        emphasis_0 255 255 255
+                        emphasis_1 200 200 200
+                        emphasis_2 150 150 150
+                        emphasis_3 100 100 100
+                    }
+                }
+            }
+        "#;
+        let theme = parse_theme_kdl(kdl, "no-multiplayer-block").expect("theme should parse");
+        for player in crate::theme::ThemeComponentType::players() {
+            let _ = theme.get(*player);
+        }
+    }
+
+    #[test]
+    fn dracula_multiplayer_colors_match_upstream_zellij() {
+        let theme = parse_theme_kdl(include_str!("../bundled_themes/dracula.kdl"), "dracula")
+            .expect("dracula should parse");
+        use crate::theme::ThemeComponentType::*;
+        assert_eq!(theme.get(Player1).base, RgbColor::new(255, 121, 198));
+        assert_eq!(theme.get(Player2).base, RgbColor::new(98, 114, 164));
+        assert_eq!(theme.get(Player4).base, RgbColor::new(241, 250, 140));
+        assert_eq!(theme.get(Player7).base, RgbColor::new(255, 85, 85));
     }
 
     #[test]
