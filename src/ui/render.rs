@@ -1,4 +1,5 @@
 use crate::theme::ThemeComponentType;
+use crate::zjstatus::ZjStatusStyle;
 use crate::ui::color_picker::{
     contrast_text, hsv_field_cell, picker_layout, ColorPickerFocus, ColorPickerMode, EditableField,
 };
@@ -71,9 +72,10 @@ mod tests {
 
         for y in 0..height {
             for x in 0..width.saturating_sub(needle_width).saturating_add(1) {
-                let matched = chars.iter().enumerate().all(|(offset, ch)| {
-                    buffer[(x + offset as u16, y)].symbol().starts_with(*ch)
-                });
+                let matched = chars
+                    .iter()
+                    .enumerate()
+                    .all(|(offset, ch)| buffer[(x + offset as u16, y)].symbol().starts_with(*ch));
                 if matched {
                     return Some((x, y));
                 }
@@ -90,7 +92,9 @@ mod tests {
     fn dracula_preview_buffer_carries_expected_theme_styles() {
         let app = dracula_app();
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
         let tab = find_text(buffer, "1:terminal").expect("selected tab should be rendered");
@@ -100,7 +104,10 @@ mod tests {
         let pane_text =
             find_text(buffer, "projects/").expect("pane content row should be rendered");
         assert_eq!(buffer[pane_text].fg, Color::Reset);
-        assert_eq!(buffer[pane_text].bg, Color::Reset);
+        assert_eq!(
+            buffer[pane_text].bg,
+            get_bg(ThemeComponentType::TextUnselected, &app.theme)
+        );
 
         let table_title =
             find_text(buffer, "Changes staged").expect("table title should be rendered");
@@ -112,7 +119,10 @@ mod tests {
         assert_eq!(buffer[exit_ok].bg, rgb(0, 0, 0));
 
         let empty_pane_cell = &buffer[(26, 8)];
-        assert_eq!(empty_pane_cell.bg, Color::Reset);
+        assert_eq!(
+            empty_pane_cell.bg,
+            get_bg(ThemeComponentType::TextUnselected, &app.theme)
+        );
         assert_eq!(empty_pane_cell.fg, Color::Reset);
     }
 
@@ -121,7 +131,9 @@ mod tests {
         let app = dracula_app();
         let expected = get_fg(ThemeComponentType::FrameUnselected, &app.theme);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
         let right_pane_border = &buffer[(82, 2)];
@@ -133,7 +145,9 @@ mod tests {
         let app = dracula_app();
         let expected = get_fg(ThemeComponentType::FrameSelected, &app.theme);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
         let left_pane_border = &buffer[(24, 1)];
@@ -141,18 +155,20 @@ mod tests {
     }
 
     #[test]
-    fn default_preview_pane_content_uses_terminal_default_colors() {
-        // Pane interiors are terminal output, not a themed Zellij component —
-        // they must render with the terminal default (Reset) regardless of theme.
+    fn default_preview_pane_content_uses_theme_background() {
         let app = dracula_app();
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
-        let pane_text =
-            find_text(buffer, "projects/").expect("projects row should be rendered");
+        let pane_text = find_text(buffer, "projects/").expect("projects row should be rendered");
         assert_eq!(buffer[pane_text].fg, Color::Reset);
-        assert_eq!(buffer[pane_text].bg, Color::Reset);
+        assert_eq!(
+            buffer[pane_text].bg,
+            get_bg(ThemeComponentType::TextUnselected, &app.theme)
+        );
     }
 
     #[test]
@@ -162,7 +178,9 @@ mod tests {
         let expected = get_fg(ThemeComponentType::FrameHighlight, &app.theme);
 
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
         let right_pane_border = &buffer[(82, 2)];
@@ -175,7 +193,9 @@ mod tests {
         app.selected_element = PreviewElement::PaneSelected;
         let expected = get_fg(ThemeComponentType::FrameSelected, &app.theme);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
         let left_pane_border = &buffer[(24, 1)];
@@ -189,13 +209,95 @@ mod tests {
         let expected_fg = get_fg(ThemeComponentType::TextSelected, &app.theme);
         let expected_bg = get_bg(ThemeComponentType::TextSelected, &app.theme);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
-        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
         let buffer = &frame.buffer;
 
         let selected_text =
             find_text(buffer, "2/5").expect("status bar should show a text_selected sample");
         assert_eq!(buffer[selected_text].fg, expected_fg);
         assert_eq!(buffer[selected_text].bg, expected_bg);
+    }
+
+    #[test]
+    fn zjstatus_group_is_unreachable_and_greyed_when_not_detected() {
+        let mut app = dracula_app();
+        app.zjstatus_detected = false;
+        assert!(!app
+            .visible_elements()
+            .contains(&PreviewElement::ZjTabActive));
+        app.select_group_index(6);
+        assert_ne!(app.selected_group, crate::ui::state::PreviewGroup::ZjStatus);
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
+        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        assert!(find_text(&frame.buffer, "not detected").is_some());
+
+        app.zjstatus_detected = true;
+        app.select_group_index(6);
+        assert_eq!(app.selected_group, crate::ui::state::PreviewGroup::ZjStatus);
+    }
+
+    #[test]
+    fn sidebar_scrolls_to_keep_selection_visible() {
+        let mut app = dracula_app();
+        app.zjstatus_detected = true;
+        app.select_group_index(6);
+        app.selected_element = PreviewElement::ZjMuted;
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).expect("test terminal");
+        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        assert!(find_text(&frame.buffer, "Muted text").is_some());
+        assert!(find_text(&frame.buffer, "▲").is_some());
+
+        app.selected_element = PreviewElement::TabSelected;
+        app.selected_group = crate::ui::state::PreviewGroup::TabBar;
+        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        assert!(find_text(&frame.buffer, "Tab (Selected)").is_some());
+        assert!(find_text(&frame.buffer, "▼").is_some());
+    }
+
+    #[test]
+    fn zjstatus_selection_underlines_its_section_and_flashes() {
+        let mut app = dracula_app();
+        app.zjstatus_detected = true;
+        app.select_group_index(6);
+        app.selected_element = PreviewElement::ZjTabActive;
+        app.flash_start = None;
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
+        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let tab = find_text(&frame.buffer, "terminal").expect("active tab");
+        let other = find_text(&frame.buffer, "bash").expect("inactive tab");
+        assert!(frame.buffer[tab].modifier.contains(Modifier::UNDERLINED));
+        assert!(!frame.buffer[other].modifier.contains(Modifier::UNDERLINED));
+
+        // Off-phase of the flash hides the highlight.
+        app.flash_start = Some(std::time::Instant::now());
+        app.flash_ticks = 6;
+        let frame = terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        let tab = find_text(&frame.buffer, "terminal").expect("active tab");
+        assert!(!frame.buffer[tab].modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn zjstatus_preview_uses_derived_theme_colors() {
+        let mut app = dracula_app();
+        app.show_zjstatus = true;
+        let st = ZjStatusStyle::from_theme(&app.theme);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
+        let frame = terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
+        let buffer = &frame.buffer;
+
+        let tab = find_text(buffer, "terminal").expect("zjstatus bar should show the active tab");
+        assert_eq!(
+            buffer[tab].bg,
+            Color::Rgb(st.active_bg.r, st.active_bg.g, st.active_bg.b)
+        );
+        assert!(find_text(buffer, "zjstatus").is_some());
     }
 
     #[test]
@@ -207,7 +309,9 @@ mod tests {
         let mut terminal =
             Terminal::new(CrosstermBackend::new(writer)).expect("crossterm terminal");
 
-        terminal.draw(|f| app.render(f)).expect("draw should succeed");
+        terminal
+            .draw(|f| app.render(f))
+            .expect("draw should succeed");
 
         let ansi = capture.utf8();
         for color in [
@@ -307,9 +411,11 @@ impl App {
 
     fn render_preview(&self, frame: &mut Frame) {
         let area = frame.area();
-        let [sidebar, right] =
-            Layout::horizontal([Constraint::Length(super::state::SIDEBAR_W), Constraint::Fill(1)])
-                .areas(area);
+        let [sidebar, right] = Layout::horizontal([
+            Constraint::Length(super::state::SIDEBAR_W),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
         let [tab_bar, main, status_bar] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Fill(1),
@@ -318,13 +424,75 @@ impl App {
         .areas(right);
 
         self.render_sidebar_tree(frame, sidebar);
-        self.render_zellij_tab_bar(frame, tab_bar);
+        let show_zj = self.show_zjstatus
+            || (self.zjstatus_detected && self.selected_group == super::state::PreviewGroup::ZjStatus);
+        if show_zj {
+            let bar_bg = get_bg(ThemeComponentType::TextUnselected, &self.theme);
+            frame.render_widget(Paragraph::new("").style(Style::new().bg(bar_bg)), tab_bar);
+        } else {
+            self.render_zellij_tab_bar(frame, tab_bar);
+        }
         if self.selected_group == super::state::PreviewGroup::Multiplayer {
             self.render_multiplayer_panel(frame, main);
         } else {
             self.render_zellij_panes(frame, main);
         }
-        self.render_zellij_status_bar(frame, status_bar);
+        if show_zj {
+            self.render_zjstatus_bar(frame, status_bar);
+        } else {
+            self.render_zellij_status_bar(frame, status_bar);
+        }
+    }
+
+    /// zjstatus-style bar: colors come from `ZjStatusStyle::from_theme`, the same
+    /// mapping used when applying the theme to a layout file.
+    fn render_zjstatus_bar(&self, frame: &mut Frame, area: Rect) {
+        let st = ZjStatusStyle::from_theme(&self.theme);
+        let c = |x: crate::theme::RgbColor| Color::Rgb(x.r, x.g, x.b);
+        // Same selection feedback as the other previews: underline, hidden during flash-off.
+        let sel = |e: PreviewElement| selection_modifier(self.is_element_active(e));
+        let bar = Style::new()
+            .fg(c(st.bar_fg))
+            .bg(c(st.bar_bg))
+            .add_modifier(sel(PreviewElement::ZjBar));
+        let accent = Style::new()
+            .fg(c(st.accent_fg))
+            .bg(c(st.accent_bg))
+            .add_modifier(Modifier::BOLD | sel(PreviewElement::ZjAccent));
+        let active = Style::new()
+            .fg(c(st.active_fg))
+            .bg(c(st.active_bg))
+            .add_modifier(Modifier::BOLD | Modifier::ITALIC | sel(PreviewElement::ZjTabActive));
+        let normal = Style::new()
+            .fg(c(st.normal_fg))
+            .bg(c(st.normal_bg))
+            .add_modifier(sel(PreviewElement::ZjTabInactive));
+        let muted = Style::new()
+            .fg(c(st.muted))
+            .bg(c(st.bar_bg))
+            .add_modifier(sel(PreviewElement::ZjMuted));
+
+        let left = vec![
+            Span::styled(" ", accent),
+            Span::styled("zellij ", accent),
+            Span::styled("  ", bar),
+            Span::styled(" 1  terminal ", active),
+            Span::styled(" ", bar),
+            Span::styled(" 2  bash ", normal),
+            Span::styled(" ", bar),
+            Span::styled(" 3  nvim ", normal),
+        ];
+        let hint = " zjstatus ";
+        let right = " 12:00 ";
+        let used: usize =
+            left.iter().map(|s| s.width()).sum::<usize>() + hint.len() + right.len();
+        let fill = (area.width as usize).saturating_sub(used);
+
+        let mut spans = left;
+        spans.push(Span::styled(" ".repeat(fill), bar));
+        spans.push(Span::styled(hint, muted));
+        spans.push(Span::styled(right, accent));
+        frame.render_widget(Paragraph::new(vec![Line::from(spans)]).style(bar), area);
     }
 
     /// Preview for the Multiplayer group: each `player_N` slot colors the
@@ -332,7 +500,10 @@ impl App {
     /// no single mockup element to recolor — show them as a labeled swatch list.
     fn render_multiplayer_panel(&self, frame: &mut Frame, area: Rect) {
         let t = &self.theme;
-        frame.render_widget(Paragraph::new("").style(Style::new().bg(Color::Reset)), area);
+        frame.render_widget(
+            Paragraph::new("").style(Style::new().bg(Color::Reset)),
+            area,
+        );
 
         let block = Block::bordered()
             .title(" Multiplayer — other clients' pane border & cursor colors ")
@@ -341,21 +512,36 @@ impl App {
         frame.render_widget(block, area);
 
         let [left, right] =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(inner);
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .areas(inner);
         let left_rows: [Rect; 5] = Layout::vertical([Constraint::Length(1); 5]).areas(left);
         let right_rows: [Rect; 5] = Layout::vertical([Constraint::Length(1); 5]).areas(right);
 
         let flashing = self.is_flashing_off();
-        for (i, elem) in super::state::PreviewGroup::Multiplayer.fields().iter().enumerate() {
-            let row = if i < 5 { left_rows[i] } else { right_rows[i - 5] };
+        for (i, elem) in super::state::PreviewGroup::Multiplayer
+            .fields()
+            .iter()
+            .enumerate()
+        {
+            let row = if i < 5 {
+                left_rows[i]
+            } else {
+                right_rows[i - 5]
+            };
             let color = get_fg(elem.component_type(), t);
             let active = self.is_element_active(*elem);
             let label_style = if active {
-                Style::new().fg(Color::Rgb(242, 240, 255)).add_modifier(Modifier::BOLD)
+                Style::new()
+                    .fg(Color::Rgb(242, 240, 255))
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::new().fg(Color::Rgb(170, 170, 190))
             };
-            let marker = if self.selected_element == *elem && flashing { "○" } else { "●" };
+            let marker = if self.selected_element == *elem && flashing {
+                "○"
+            } else {
+                "●"
+            };
             let line = Line::from(vec![
                 Span::raw(" "),
                 Span::styled(marker, Style::new().fg(color)),
@@ -377,14 +563,26 @@ impl App {
         let t = &self.theme;
         let active = self.selected_element;
         let mut lines: Vec<Line> = Vec::new();
+        let mut selected_line = 0usize;
 
         for g in super::state::PreviewGroup::all() {
             let is_current_group = *g == self.selected_group;
             let group_style = if is_current_group {
-                Style::new().fg(ACCENT_FG).bg(BG).add_modifier(Modifier::BOLD)
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(BG)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::new().fg(GROUP_FG).bg(BG)
             };
+            let unavailable = *g == super::state::PreviewGroup::ZjStatus && !self.zjstatus_detected;
+            if unavailable {
+                lines.push(Line::from(Span::styled(
+                    format!(" {} (not detected) ", g.label()),
+                    Style::new().fg(MUTED).bg(BG).add_modifier(Modifier::DIM),
+                )));
+                continue;
+            }
             lines.push(Line::from(Span::styled(
                 format!(" {} ", g.label()),
                 group_style,
@@ -399,6 +597,7 @@ impl App {
                 let has_bg = !f.is_single_color();
 
                 if selected {
+                    selected_line = lines.len();
                     let mut spans = vec![
                         Span::styled("  ", Style::new().bg(SEL_BG)),
                         Span::styled("▎", Style::new().fg(ACCENT_FG).bg(SEL_BG)),
@@ -412,7 +611,10 @@ impl App {
                     }
                     spans.push(Span::styled(
                         format!("  {} ", f.label()),
-                        Style::new().fg(ACCENT_FG).bg(SEL_BG).add_modifier(Modifier::BOLD),
+                        Style::new()
+                            .fg(ACCENT_FG)
+                            .bg(SEL_BG)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     // fill remaining width
                     let used = spans.iter().map(|s| s.width()).sum::<usize>();
@@ -422,9 +624,7 @@ impl App {
                     }
                     lines.push(Line::from(spans));
                 } else {
-                    let mut spans = vec![
-                        Span::styled("   ", Style::new().bg(BG)),
-                    ];
+                    let mut spans = vec![Span::styled("   ", Style::new().bg(BG))];
                     if has_bg {
                         spans.push(Span::styled("F", Style::new().fg(fg_ct).bg(fg)));
                         spans.push(Span::styled("B", Style::new().fg(bg_ct).bg(bg)));
@@ -448,14 +648,30 @@ impl App {
 
         // hint at bottom
         lines.push(Line::from(Span::styled(
-            "  / find · 1-5 jump",
+            "  / find · 1-6 jump",
             Style::new().fg(MUTED).bg(BG),
         )));
 
+        // Scroll just enough to keep the selected row visible.
+        let height = area.height as usize;
+        let total = lines.len();
+        let offset = (selected_line + 1).saturating_sub(height);
         frame.render_widget(
-            Paragraph::new(lines).style(Style::new().bg(BG)),
+            Paragraph::new(lines)
+                .style(Style::new().bg(BG))
+                .scroll((offset as u16, 0)),
             area,
         );
+
+        let marker = Style::new().fg(MUTED).bg(BG);
+        let x = area.x + area.width.saturating_sub(2);
+        if offset > 0 {
+            frame.render_widget(Paragraph::new("▲").style(marker), Rect::new(x, area.y, 1, 1));
+        }
+        if height > 0 && offset + height < total {
+            let y = area.y + area.height - 1;
+            frame.render_widget(Paragraph::new("▼").style(marker), Rect::new(x, y, 1, 1));
+        }
     }
 
     // ── Field search overlay ─────────────────────────────────────────────
@@ -485,14 +701,14 @@ impl App {
         let query_display = if self.field_search_query.is_empty() {
             Span::styled("type to search fields…", Style::new().fg(muted))
         } else {
-            Span::styled(
-                format!("/{}", self.field_search_query),
-                Style::new().fg(fg),
-            )
+            Span::styled(format!("/{}", self.field_search_query), Style::new().fg(fg))
         };
         frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(" / ", Style::new().fg(accent_fg)), query_display]))
-                .style(Style::new().bg(bg)),
+            Paragraph::new(Line::from(vec![
+                Span::styled(" / ", Style::new().fg(accent_fg)),
+                query_display,
+            ]))
+            .style(Style::new().bg(bg)),
             input_area,
         );
 
@@ -517,10 +733,7 @@ impl App {
                 Style::new().fg(muted),
             )));
         }
-        frame.render_widget(
-            Paragraph::new(lines).style(Style::new().bg(bg)),
-            list_area,
-        );
+        frame.render_widget(Paragraph::new(lines).style(Style::new().bg(bg)), list_area);
     }
 
     fn render_zellij_tab_bar(&self, frame: &mut Frame, area: Rect) {
@@ -588,14 +801,12 @@ impl App {
     }
 
     fn render_zellij_panes(&self, frame: &mut Frame, area: Rect) {
-        // Pane interiors are terminal output: they use the terminal's own
-        // default colors and do NOT change with the Zellij theme. Only the
-        // frame borders and the embedded Zellij widgets (tables/lists/exit
-        // codes) are themed.
         let text_fg = Color::Reset;
-        let canvas_bg = Color::Reset;
+        // Editor-only backdrop: Zellij themes style UI/plugin components, not
+        // the default background of terminal applications inside panes.
+        let pane_bg = get_bg(ThemeComponentType::TextUnselected, &self.theme);
 
-        frame.render_widget(Paragraph::new("").style(Style::new().bg(canvas_bg)), area);
+        frame.render_widget(Paragraph::new("").style(Style::new().bg(pane_bg)), area);
 
         let [left, right] =
             Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
@@ -604,16 +815,15 @@ impl App {
         let [top_left, bottom_left] =
             Layout::vertical([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(left);
 
-        self.render_pane_selected(frame, top_left, text_fg);
-        self.render_pane_unselected(frame, bottom_left, text_fg);
-        self.render_pane_highlight(frame, right, text_fg);
+        self.render_pane_selected(frame, top_left, text_fg, pane_bg);
+        self.render_pane_unselected(frame, bottom_left, text_fg, pane_bg);
+        self.render_pane_highlight(frame, right, text_fg, pane_bg);
     }
 
-    fn render_pane_selected(&self, frame: &mut Frame, area: Rect, text_fg: Color) {
+    fn render_pane_selected(&self, frame: &mut Frame, area: Rect, text_fg: Color, pane_bg: Color) {
         let t = &self.theme;
         let is_editing_border = self.selected_element == PreviewElement::PaneSelected;
         let flashing = self.is_flashing_off();
-        let pane_bg = Color::Reset;
 
         let dim_color = |c: Color| -> Color {
             if let Color::Rgb(r, g, b) = c {
@@ -644,9 +854,8 @@ impl App {
             BorderType::Double
         };
 
-        // Pane contents are terminal output — colored by the terminal's own
-        // palette, not by any Zellij theme component. Rendered here only as a
-        // neutral backdrop so the frame colors have something to surround.
+        // Text is terminal output, so keep its foreground neutral; the
+        // background is a preview aid for judging theme contrast.
         let content = vec![
             Line::from(Span::styled("$ ls", Style::new().fg(text_fg).bg(pane_bg))),
             Line::from(Span::styled(
@@ -674,10 +883,15 @@ impl App {
         frame.render_widget(Paragraph::new(content).block(block), area);
     }
 
-    fn render_pane_unselected(&self, frame: &mut Frame, area: Rect, text_fg: Color) {
+    fn render_pane_unselected(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        text_fg: Color,
+        pane_bg: Color,
+    ) {
         let is_editing = self.selected_element == PreviewElement::PaneUnselected;
         let flashing = self.is_flashing_off();
-        let pane_bg = Color::Reset;
         let border_color = get_fg(ThemeComponentType::FrameUnselected, &self.theme);
         let dim = |c: Color| -> Color {
             if let Color::Rgb(r, g, b) = c {
@@ -732,10 +946,9 @@ impl App {
         frame.render_widget(Paragraph::new(content).block(block), area);
     }
 
-    fn render_pane_highlight(&self, frame: &mut Frame, area: Rect, text_fg: Color) {
+    fn render_pane_highlight(&self, frame: &mut Frame, area: Rect, text_fg: Color, pane_bg: Color) {
         let t = &self.theme;
         let is_editing_frame = self.is_element_active(PreviewElement::PaneHighlight);
-        let pane_bg = Color::Reset;
         let (border_color, border_type, title) = if is_editing_frame {
             (
                 get_fg(ThemeComponentType::FrameHighlight, t),
@@ -779,8 +992,14 @@ impl App {
 
         let content = vec![
             // git status header lines
-            Line::from(Span::styled("$ git status", Style::new().fg(text_fg).bg(pane_bg))),
-            Line::from(Span::styled("On branch main", Style::new().fg(text_fg).bg(pane_bg))),
+            Line::from(Span::styled(
+                "$ git status",
+                Style::new().fg(text_fg).bg(pane_bg),
+            )),
+            Line::from(Span::styled(
+                "On branch main",
+                Style::new().fg(text_fg).bg(pane_bg),
+            )),
             Line::from(Span::raw("")),
             // Changes staged — table_title style
             Line::from(Span::styled(
@@ -887,7 +1106,11 @@ impl App {
             }
             InputMode::ThemeLoad => (" LOAD   ", sel_fg, sel_bg),
             InputMode::ThemeLoadRename => (" RENAME ", sel_fg, sel_bg),
-            InputMode::ThemeLoadDeleteConfirm => (" DELETE ", Color::Rgb(255, 100, 100), Color::Rgb(80, 20, 20)),
+            InputMode::ThemeLoadDeleteConfirm => (
+                " DELETE ",
+                Color::Rgb(255, 100, 100),
+                Color::Rgb(80, 20, 20),
+            ),
             InputMode::UpdateRestartConfirm => (" UPDATE ", sel_fg, sel_bg),
             InputMode::FieldSearch => (" FIND   ", sel_fg, sel_bg),
             InputMode::Help => (" HELP   ", sel_fg, sel_bg),
@@ -896,17 +1119,27 @@ impl App {
 
         // key_active flashes the RibbonSelected segment, action_active the
         // RibbonUnselected segment — they map to the two Tab elements.
-        let pill_full = |key: &str, action: &str, key_active: bool, action_active: bool| -> Vec<Span<'static>> {
+        let pill_full = |key: &str,
+                         action: &str,
+                         key_active: bool,
+                         action_active: bool|
+         -> Vec<Span<'static>> {
             vec![
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(key_active)),
+                    Style::new()
+                        .fg(sel_fg)
+                        .bg(sel_bg)
+                        .add_modifier(Modifier::BOLD | selection_modifier(key_active)),
                 ),
                 Span::styled("", Style::new().fg(unsel_bg).bg(sel_bg)),
                 Span::styled(
                     format!(" {} ", action),
-                    Style::new().fg(unsel_fg).bg(unsel_bg).add_modifier(selection_modifier(action_active)),
+                    Style::new()
+                        .fg(unsel_fg)
+                        .bg(unsel_bg)
+                        .add_modifier(selection_modifier(action_active)),
                 ),
                 Span::styled("", Style::new().fg(unsel_bg).bg(bar_bg)),
             ]
@@ -917,13 +1150,23 @@ impl App {
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(sel_fg).bg(sel_bg).add_modifier(Modifier::BOLD | selection_modifier(key_active)),
+                    Style::new()
+                        .fg(sel_fg)
+                        .bg(sel_bg)
+                        .add_modifier(Modifier::BOLD | selection_modifier(key_active)),
                 ),
                 Span::styled("", Style::new().fg(sel_bg).bg(bar_bg)),
             ]
         };
 
-        let gap = || Span::styled(" ", Style::new().bg(bar_bg).add_modifier(selection_modifier(is_text_unsel)));
+        let gap = || {
+            Span::styled(
+                " ",
+                Style::new()
+                    .bg(bar_bg)
+                    .add_modifier(selection_modifier(is_text_unsel)),
+            )
+        };
 
         // Measure a candidate set of pill spans to get their true rendered width.
         let spans_width = |spans: &[Span]| -> usize { spans.iter().map(|s| s.width()).sum() };
@@ -932,13 +1175,13 @@ impl App {
         let bindings: &[(&str, &str, &str)] = match self.input_mode {
             InputMode::Preview => &[
                 ("↑↓", "ELEMENT", "EL"),
-                ("c",    "COLOR",      "CLR"),
-                ("U",    "UPDATE",     "UPD"),
-                ("s",    "SAVE AS",    "SAVE"),
-                ("l",    "LOAD",       "LD"),
-                ("a",    "SAVE+APPLY", "APPLY"),
-                ("?",    "HELP",       "?"),
-                ("q",    "QUIT",       "QT"),
+                ("c", "COLOR", "CLR"),
+                ("U", "UPDATE", "UPD"),
+                ("s", "SAVE AS", "SAVE"),
+                ("l", "LOAD", "LD"),
+                ("a", "APPLY", "APPLY"),
+                ("?", "HELP", "?"),
+                ("q", "QUIT", "QT"),
             ],
             InputMode::ColorPicker => {
                 let show_fg_bg = !self.selected_element.is_single_color();
@@ -966,29 +1209,26 @@ impl App {
                 }
             }
             InputMode::ThemeNameInput | InputMode::ThemeNameInputApply => &[
-                ("type",  "NAME",   "NM"),
-                ("Enter", "SAVE",   "OK"),
-                ("Esc",   "CANCEL", "ESC"),
+                ("type", "NAME", "NM"),
+                ("Enter", "SAVE", "OK"),
+                ("Esc", "CANCEL", "ESC"),
             ],
             InputMode::ThemeLoad => &[
-                ("↑↓",   "SELECT",  "SEL"),
-                ("b",    "BUILTIN", "BIN"),
-                ("s",    "SAVED",   "SVD"),
-                ("Enter","LOAD",    "LD"),
-                ("a",    "APPLY",   "AP"),
-                ("r",    "RENAME",  "RN"),
-                ("d",    "DELETE",  "DEL"),
-                ("Esc",  "CANCEL",  "ESC"),
+                ("↑↓", "SELECT", "SEL"),
+                ("b", "BUILTIN", "BIN"),
+                ("s", "SAVED", "SVD"),
+                ("Enter", "LOAD", "LD"),
+                ("a", "APPLY", "AP"),
+                ("r", "RENAME", "RN"),
+                ("d", "DELETE", "DEL"),
+                ("Esc", "CANCEL", "ESC"),
             ],
             InputMode::ThemeLoadRename => &[
-                ("type",  "NAME",   "NM"),
+                ("type", "NAME", "NM"),
                 ("Enter", "RENAME", "OK"),
-                ("Esc",   "CANCEL", "ESC"),
+                ("Esc", "CANCEL", "ESC"),
             ],
-            InputMode::ThemeLoadDeleteConfirm => &[
-                ("y", "CONFIRM", "Y"),
-                ("n", "CANCEL",  "N"),
-            ],
+            InputMode::ThemeLoadDeleteConfirm => &[("y", "CONFIRM", "Y"), ("n", "CANCEL", "N")],
             InputMode::UpdateRestartConfirm => &[
                 ("Enter", "RESTART", "OK"),
                 ("l", "LATER", "L"),
@@ -1004,9 +1244,7 @@ impl App {
                 ("Pg", "JUMP", "PG"),
                 ("Esc", "CLOSE", "X"),
             ],
-            InputMode::About => &[
-                ("any", "CLOSE", "X"),
-            ],
+            InputMode::About => &[("any", "CLOSE", "X")],
         };
 
         // ── Pick label level by measuring actual span widths ──────────────
@@ -1024,36 +1262,54 @@ impl App {
         // Reserve room for the text_selected sample chip ("" + " 2/5 " + "").
         let sample_w = if show_text_sel { 7 } else { 0 };
         let right_w = info.chars().count()
-            + self.message.as_ref().map(|m| m.chars().count() + 3).unwrap_or(0)
+            + self
+                .message
+                .as_ref()
+                .map(|m| m.chars().count() + 3)
+                .unwrap_or(0)
             + sample_w;
 
         // mode pill spans (built once, measured)
         let mode_pill_spans: Vec<Span> = vec![
             Span::styled("", Style::new().fg(mode_bg).bg(bar_bg)),
-            Span::styled(mode_label, Style::new().fg(mode_fg).bg(mode_bg).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                mode_label,
+                Style::new()
+                    .fg(mode_fg)
+                    .bg(mode_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("", Style::new().fg(mode_bg).bg(bar_bg)),
             gap(),
         ];
         let mode_pill_w = spans_width(&mode_pill_spans);
 
         let measure_pills = |label_idx: usize| -> usize {
-            bindings.iter().map(|(k, l, s)| {
-                let action = if label_idx == 0 { l } else { s };
-                let mut w = spans_width(&pill_full(k, action, false, false));
-                w += gap().width();
-                w
-            }).sum()
+            bindings
+                .iter()
+                .map(|(k, l, s)| {
+                    let action = if label_idx == 0 { l } else { s };
+                    let mut w = spans_width(&pill_full(k, action, false, false));
+                    w += gap().width();
+                    w
+                })
+                .sum()
         };
         let measure_keys_only = || -> usize {
-            bindings.iter().map(|(k, _, _)| {
-                spans_width(&pill_key_only(k, false)) + gap().width()
-            }).sum()
+            bindings
+                .iter()
+                .map(|(k, _, _)| spans_width(&pill_key_only(k, false)) + gap().width())
+                .sum()
         };
 
         let available = (area.width as usize).saturating_sub(mode_pill_w + right_w);
-        let level = if measure_pills(0) <= available { 0 }
-                    else if measure_pills(1) <= available { 1 }
-                    else { 2 };
+        let level = if measure_pills(0) <= available {
+            0
+        } else if measure_pills(1) <= available {
+            1
+        } else {
+            2
+        };
         let _ = measure_keys_only; // silence unused warning
 
         let mut spans: Vec<Span> = Vec::new();
@@ -1097,7 +1353,9 @@ impl App {
         let fill = (area.width as usize).saturating_sub(used + right_w);
         spans.push(Span::styled(
             " ".repeat(fill),
-            Style::new().bg(bar_bg).add_modifier(selection_modifier(is_text_unsel)),
+            Style::new()
+                .bg(bar_bg)
+                .add_modifier(selection_modifier(is_text_unsel)),
         ));
 
         // text_selected preview: a search-result "paging" chip, shown while the
@@ -1116,7 +1374,11 @@ impl App {
         }
 
         if let Some(ref msg) = self.message {
-            let msg_color = if msg.starts_with('✗') { Color::Red } else { Color::Green };
+            let msg_color = if msg.starts_with('✗') {
+                Color::Red
+            } else {
+                Color::Green
+            };
             spans.push(Span::styled(
                 format!(" {} ", msg),
                 Style::new()
@@ -1127,16 +1389,38 @@ impl App {
         } else {
             use crate::ui::state::UpdateStatus;
             let (update_text, update_color, bold) = match &self.update_status {
-                UpdateStatus::Checking    => (Some(" checking for update… ".to_string()),  Color::DarkGray, false),
-                UpdateStatus::Available(v) => (Some(format!(" ↑ {} available — press U ", v)), Color::Yellow,   true),
-                UpdateStatus::Downloading => (Some(" downloading update… ".to_string()),   Color::Yellow,   false),
-                UpdateStatus::Done        => (Some(" ✓ updated — restart to apply ".to_string()), Color::Green, true),
-                UpdateStatus::Failed(e)   => (Some(format!(" update check failed: {} ", e)), Color::Red,    false),
-                _                         => (None, Color::Reset, false),
+                UpdateStatus::Checking => (
+                    Some(" checking for update… ".to_string()),
+                    Color::DarkGray,
+                    false,
+                ),
+                UpdateStatus::Available(v) => (
+                    Some(format!(" ↑ {} available — press U ", v)),
+                    Color::Yellow,
+                    true,
+                ),
+                UpdateStatus::Downloading => (
+                    Some(" downloading update… ".to_string()),
+                    Color::Yellow,
+                    false,
+                ),
+                UpdateStatus::Done => (
+                    Some(" ✓ updated — restart to apply ".to_string()),
+                    Color::Green,
+                    true,
+                ),
+                UpdateStatus::Failed(e) => (
+                    Some(format!(" update check failed: {} ", e)),
+                    Color::Red,
+                    false,
+                ),
+                _ => (None, Color::Reset, false),
             };
             if let Some(text) = update_text {
                 let mut style = Style::new().fg(update_color).bg(bar_bg);
-                if bold { style = style.add_modifier(Modifier::BOLD); }
+                if bold {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
                 spans.push(Span::styled(text, style));
             }
         }
@@ -1191,7 +1475,11 @@ impl App {
         const SURFACE_BG: Color = Color::Rgb(26, 26, 32);
         const SURFACE_FOCUS_BG: Color = Color::Rgb(34, 31, 46);
 
-        let rects = picker_layout(frame.area(), self.color_editor.mode, self.selected_element.preferred_picker_anchor());
+        let rects = picker_layout(
+            frame.area(),
+            self.color_editor.mode,
+            self.selected_element.preferred_picker_anchor(),
+        );
         frame.render_widget(Clear, rects.overlay);
 
         let outer = Block::bordered()
@@ -1208,7 +1496,8 @@ impl App {
         ])
         .areas(inner);
         let [main_col, side_col] =
-            Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(body);
+            Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
+                .areas(body);
         let [preview_area, _fields_area] =
             Layout::vertical([Constraint::Length(5), Constraint::Fill(1)]).areas(side_col);
 
@@ -1217,10 +1506,13 @@ impl App {
         let hsl = self.color_editor.hsl;
         let hsv = self.color_editor.hsv();
 
-        let original_rgb = self.original_component.as_ref().map(|orig| match self.selected_attribute {
-            PreviewAttribute::Base => orig.base,
-            PreviewAttribute::Background => orig.background,
-        });
+        let original_rgb =
+            self.original_component
+                .as_ref()
+                .map(|orig| match self.selected_attribute {
+                    PreviewAttribute::Base => orig.base,
+                    PreviewAttribute::Background => orig.background,
+                });
 
         let mk_pill = |key: &str, label: &str, active: bool| -> Vec<Span<'static>> {
             let (key_bg, key_fg, lbl_bg, lbl_fg) = if active {
@@ -1232,7 +1524,10 @@ impl App {
                 Span::styled("", Style::new().fg(key_bg).bg(OB_BG)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(key_fg).bg(key_bg).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(key_fg)
+                        .bg(key_bg)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("", Style::new().fg(lbl_bg).bg(key_bg)),
                 Span::styled(format!(" {} ", label), Style::new().fg(lbl_fg).bg(lbl_bg)),
@@ -1247,7 +1542,10 @@ impl App {
         let mode_focused = self.color_editor.focus == ColorPickerFocus::ModeToggle;
         let mode_pills = [
             if mode_focused {
-                vec![Span::styled("› ", Style::new().fg(ACCENT_FG).add_modifier(Modifier::BOLD))]
+                vec![Span::styled(
+                    "› ",
+                    Style::new().fg(ACCENT_FG).add_modifier(Modifier::BOLD),
+                )]
             } else {
                 vec![]
             },
@@ -1263,7 +1561,10 @@ impl App {
                 self.color_editor.mode == ColorPickerMode::HslField,
             ),
             if mode_focused {
-                vec![Span::styled(" ‹", Style::new().fg(ACCENT_FG).add_modifier(Modifier::BOLD))]
+                vec![Span::styled(
+                    " ‹",
+                    Style::new().fg(ACCENT_FG).add_modifier(Modifier::BOLD),
+                )]
             } else {
                 vec![]
             },
@@ -1276,10 +1577,16 @@ impl App {
                 Span::styled("", Style::new().fg(ACCENT_BG).bg(OB_BG)),
                 Span::styled(
                     format!(" {} ", attr),
-                    Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("", Style::new().fg(SUBTLE_BG).bg(ACCENT_BG)),
-                Span::styled(format!(" {} ", name), Style::new().fg(SUBTLE_FG).bg(SUBTLE_BG)),
+                Span::styled(
+                    format!(" {} ", name),
+                    Style::new().fg(SUBTLE_FG).bg(SUBTLE_BG),
+                ),
                 Span::styled("", Style::new().fg(SUBTLE_BG).bg(OB_BG)),
             ]
         };
@@ -1301,18 +1608,20 @@ impl App {
             Block::default().style(Style::new().bg(SURFACE_BG)),
             main_col,
         );
-        frame.render_widget(
-            Block::default().style(Style::new().bg(OB_BG)),
-            side_col,
-        );
+        frame.render_widget(Block::default().style(Style::new().bg(OB_BG)), side_col);
 
         match self.color_editor.mode {
             ColorPickerMode::RgbSliders => {
-                let channels_focus = matches!(self.color_editor.focus, ColorPickerFocus::RgbSlider(_));
+                let channels_focus =
+                    matches!(self.color_editor.focus, ColorPickerFocus::RgbSlider(_));
                 let channels_block = Block::bordered()
                     .title(" Channels ")
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::new().fg(if channels_focus { ACCENT_BG } else { OB_BORDER }))
+                    .border_style(Style::new().fg(if channels_focus {
+                        ACCENT_BG
+                    } else {
+                        OB_BORDER
+                    }))
                     .style(Style::new().bg(SURFACE_BG));
                 let channels_inner = channels_block.inner(rects.main_view);
                 frame.render_widget(channels_block, rects.main_view);
@@ -1342,7 +1651,11 @@ impl App {
                             Style::new()
                                 .fg(if is_focus { ACCENT_FG } else { OB_TEXT })
                                 .bg(if is_focus { ACCENT_BG } else { SURFACE_BG })
-                                .add_modifier(if is_focus { Modifier::BOLD } else { Modifier::empty() }),
+                                .add_modifier(if is_focus {
+                                    Modifier::BOLD
+                                } else {
+                                    Modifier::empty()
+                                }),
                         ),
                         Span::styled(bar, Style::new().fg(color).bg(SURFACE_BG)),
                         Span::styled(
@@ -1350,7 +1663,10 @@ impl App {
                             Style::new().fg(if is_focus { OB_TEXT } else { OB_MUTED }),
                         ),
                     ]);
-                    frame.render_widget(Paragraph::new(line).style(Style::new().bg(SURFACE_BG)), row_rect);
+                    frame.render_widget(
+                        Paragraph::new(line).style(Style::new().bg(SURFACE_BG)),
+                        row_rect,
+                    );
                 }
                 frame.render_widget(
                     Paragraph::new(vec![
@@ -1369,7 +1685,10 @@ impl App {
                             Style::new().fg(OB_TEXT),
                         )),
                         Line::from(Span::styled(
-                            format!(" HSV {:.0} / {:.0}% / {:.0}%", hsv.hue, hsv.saturation, hsv.value),
+                            format!(
+                                " HSV {:.0} / {:.0}% / {:.0}%",
+                                hsv.hue, hsv.saturation, hsv.value
+                            ),
                             Style::new().fg(OB_MUTED),
                         )),
                     ])
@@ -1385,25 +1704,43 @@ impl App {
             ColorPickerMode::HslField => {
                 let field_focus = self.color_editor.focus == ColorPickerFocus::HslField;
                 let field_block = Block::bordered()
-                    .title(if field_focus { " Color Field ● " } else { " Color Field " })
+                    .title(if field_focus {
+                        " Color Field ● "
+                    } else {
+                        " Color Field "
+                    })
                     .title_style(
                         Style::new()
                             .fg(if field_focus { ACCENT_FG } else { OB_MUTED })
-                            .add_modifier(if field_focus { Modifier::BOLD } else { Modifier::empty() }),
+                            .add_modifier(if field_focus {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
                     )
-                    .border_type(if field_focus { BorderType::Double } else { BorderType::Rounded })
+                    .border_type(if field_focus {
+                        BorderType::Double
+                    } else {
+                        BorderType::Rounded
+                    })
                     .border_style(Style::new().fg(if field_focus { ACCENT_BG } else { OB_BORDER }))
-                    .style(Style::new().bg(if field_focus { SURFACE_FOCUS_BG } else { SURFACE_BG }));
+                    .style(Style::new().bg(if field_focus {
+                        SURFACE_FOCUS_BG
+                    } else {
+                        SURFACE_BG
+                    }));
                 let field_area = field_block.inner(rects.main_view);
                 frame.render_widget(field_block, rects.main_view);
                 for row in 0..field_area.height {
                     let mut spans = Vec::with_capacity(field_area.width as usize);
                     for col in 0..field_area.width {
                         let x_frac = col as f32 / field_area.width.saturating_sub(1).max(1) as f32;
-                        let top_frac = (row as f32 * 2.0) / (field_area.height.max(1) as f32 * 2.0 - 1.0);
+                        let top_frac =
+                            (row as f32 * 2.0) / (field_area.height.max(1) as f32 * 2.0 - 1.0);
                         let bottom_frac = ((row as f32 * 2.0) + 1.0)
                             / (field_area.height.max(1) as f32 * 2.0 - 1.0);
-                        let top = hsv_field_cell(x_frac * 360.0, (1.0 - top_frac) * 100.0, hsv.value);
+                        let top =
+                            hsv_field_cell(x_frac * 360.0, (1.0 - top_frac) * 100.0, hsv.value);
                         let bottom =
                             hsv_field_cell(x_frac * 360.0, (1.0 - bottom_frac) * 100.0, hsv.value);
                         let selected_col = ((hsv.hue / 360.0)
@@ -1416,7 +1753,10 @@ impl App {
                             let marker = contrast_text(current_rgb);
                             spans.push(Span::styled(
                                 "◉",
-                                Style::new().fg(tui_rgb(marker)).bg(tui_rgb(current_rgb)).add_modifier(Modifier::BOLD),
+                                Style::new()
+                                    .fg(tui_rgb(marker))
+                                    .bg(tui_rgb(current_rgb))
+                                    .add_modifier(Modifier::BOLD),
                             ));
                         } else {
                             spans.push(Span::styled(
@@ -1426,8 +1766,11 @@ impl App {
                         }
                     }
                     frame.render_widget(
-                        Paragraph::new(Line::from(spans))
-                            .style(Style::new().bg(if field_focus { SURFACE_FOCUS_BG } else { SURFACE_BG })),
+                        Paragraph::new(Line::from(spans)).style(Style::new().bg(if field_focus {
+                            SURFACE_FOCUS_BG
+                        } else {
+                            SURFACE_BG
+                        })),
                         Rect {
                             x: field_area.x,
                             y: field_area.y + row,
@@ -1442,20 +1785,33 @@ impl App {
                     .title_style(
                         Style::new()
                             .fg(if value_focus { ACCENT_FG } else { OB_MUTED })
-                            .add_modifier(if value_focus { Modifier::BOLD } else { Modifier::empty() }),
+                            .add_modifier(if value_focus {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
                     )
-                    .border_type(if value_focus { BorderType::Double } else { BorderType::Rounded })
+                    .border_type(if value_focus {
+                        BorderType::Double
+                    } else {
+                        BorderType::Rounded
+                    })
                     .border_style(Style::new().fg(if value_focus { ACCENT_BG } else { OB_BORDER }))
-                    .style(Style::new().bg(if value_focus { SURFACE_FOCUS_BG } else { SURFACE_BG }));
+                    .style(Style::new().bg(if value_focus {
+                        SURFACE_FOCUS_BG
+                    } else {
+                        SURFACE_BG
+                    }));
                 let value_area = value_block.inner(rects.aux_slider);
                 frame.render_widget(value_block, rects.aux_slider);
                 let selected_row = (((100.0 - hsv.value) / 100.0)
                     * value_area.height.saturating_sub(1).max(1) as f32)
                     .round() as u16;
                 for row in 0..value_area.height {
-                    let top_frac = (row as f32 * 2.0) / (value_area.height.max(1) as f32 * 2.0 - 1.0);
-                    let bottom_frac = ((row as f32 * 2.0) + 1.0)
-                        / (value_area.height.max(1) as f32 * 2.0 - 1.0);
+                    let top_frac =
+                        (row as f32 * 2.0) / (value_area.height.max(1) as f32 * 2.0 - 1.0);
+                    let bottom_frac =
+                        ((row as f32 * 2.0) + 1.0) / (value_area.height.max(1) as f32 * 2.0 - 1.0);
                     let top_value = (1.0 - top_frac.clamp(0.0, 1.0)) * 100.0;
                     let bottom_value = (1.0 - bottom_frac.clamp(0.0, 1.0)) * 100.0;
                     let top_color = hsv_field_cell(hsv.hue, hsv.saturation, top_value);
@@ -1474,7 +1830,9 @@ impl App {
                             .bg(tui_rgb(indicator_color))
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::new().fg(tui_rgb(top_color)).bg(tui_rgb(bottom_color))
+                        Style::new()
+                            .fg(tui_rgb(top_color))
+                            .bg(tui_rgb(bottom_color))
                     };
                     frame.render_widget(
                         Paragraph::new(Line::from(vec![Span::styled(content, style)])),
@@ -1498,7 +1856,10 @@ impl App {
                     Span::styled("      ", Style::new().bg(tui_rgb(current_rgb))),
                 ])
             } else {
-                Line::from(vec![Span::styled("      ", Style::new().bg(tui_rgb(current_rgb)))])
+                Line::from(vec![Span::styled(
+                    "      ",
+                    Style::new().bg(tui_rgb(current_rgb)),
+                )])
             };
             vec![
                 Line::from(Span::styled(
@@ -1511,11 +1872,17 @@ impl App {
                     Style::new().fg(OB_MUTED),
                 )),
                 Line::from(Span::styled(
-                    format!(" hsl {:.0} {:.0}% {:.0}%", hsl.hue, hsl.saturation, hsl.lightness),
+                    format!(
+                        " hsl {:.0} {:.0}% {:.0}%",
+                        hsl.hue, hsl.saturation, hsl.lightness
+                    ),
                     Style::new().fg(OB_MUTED),
                 )),
                 Line::from(Span::styled(
-                    format!(" hsv {:.0} {:.0}% {:.0}%", hsv.hue, hsv.saturation, hsv.value),
+                    format!(
+                        " hsv {:.0} {:.0}% {:.0}%",
+                        hsv.hue, hsv.saturation, hsv.value
+                    ),
                     Style::new().fg(current_fg),
                 )),
                 Line::from(Span::styled(
@@ -1559,25 +1926,28 @@ impl App {
                 self.color_editor.focus == ColorPickerFocus::HslFieldValue(idx),
             );
         }
-        let render_field_value = |frame: &mut Frame, rect: Rect, value: String, suffix: &str, editing: bool| {
-            let inner = Rect {
-                x: rect.x + 1,
-                y: rect.y + 1,
-                width: rect.width.saturating_sub(2),
-                height: rect.height.saturating_sub(2),
+        let render_field_value =
+            |frame: &mut Frame, rect: Rect, value: String, suffix: &str, editing: bool| {
+                let inner = Rect {
+                    x: rect.x + 1,
+                    y: rect.y + 1,
+                    width: rect.width.saturating_sub(2),
+                    height: rect.height.saturating_sub(2),
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(
+                            value,
+                            Style::new()
+                                .fg(if editing { ACCENT_FG } else { OB_TEXT })
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(suffix.to_string(), Style::new().fg(OB_MUTED)),
+                    ]))
+                    .style(Style::new().bg(OB_BG)),
+                    inner,
+                );
             };
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::styled(
-                        value,
-                        Style::new().fg(if editing { ACCENT_FG } else { OB_TEXT }).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(suffix.to_string(), Style::new().fg(OB_MUTED)),
-                ]))
-                .style(Style::new().bg(OB_BG)),
-                inner,
-            );
-        };
         render_field_value(
             frame,
             rects.hex_field,
@@ -1617,26 +1987,68 @@ impl App {
 
         // Row 1
         let mut row1: Vec<Span> = vec![
-            Span::styled(" Tab ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Tab ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" focus  ", Style::new().fg(OB_MUTED)),
-            Span::styled(" M ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " M ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" switch  ", Style::new().fg(OB_MUTED)),
         ];
         if !self.selected_element.is_single_color() {
-            row1.push(Span::styled(" F ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)));
+            row1.push(Span::styled(
+                " F ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ));
             row1.push(Span::styled(" fg/bg  ", Style::new().fg(OB_MUTED)));
         }
-        row1.push(Span::styled(" Enter ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)));
+        row1.push(Span::styled(
+            " Enter ",
+            Style::new()
+                .fg(ACCENT_FG)
+                .bg(ACCENT_BG)
+                .add_modifier(Modifier::BOLD),
+        ));
         row1.push(Span::styled(" edit/keep", Style::new().fg(OB_MUTED)));
         footer_lines.push(Line::from(row1));
 
         // Row 2
         footer_lines.push(Line::from(vec![
-            Span::styled(" Mouse ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Mouse ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" drag  ", Style::new().fg(OB_MUTED)),
-            Span::styled(" # ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " # ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" hex  ", Style::new().fg(OB_MUTED)),
-            Span::styled(" Esc ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Esc ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" cancel", Style::new().fg(OB_MUTED)),
         ]));
         frame.render_widget(
@@ -1656,8 +2068,21 @@ impl App {
             format!("{}.kdl", preview_name)
         };
 
+        let action_label = match self.input_mode {
+            InputMode::ThemeNameInputApply => String::from(" Save and apply theme "),
+            InputMode::ThemeLoadRename => String::from(" Rename theme "),
+            _ => String::from(" Save theme as "),
+        };
+        let enter_label = match self.input_mode {
+            InputMode::ThemeNameInputApply => {
+                " Enter: save + apply  Esc: cancel  Backspace: delete"
+            }
+            InputMode::ThemeLoadRename => " Enter: rename  Esc: cancel  Backspace: delete",
+            _ => " Enter: save  Esc: cancel  Backspace: delete",
+        };
+
         let lines = vec![
-            Line::from(" Save theme as "),
+            Line::from(action_label),
             Line::from(""),
             Line::from(vec![
                 Span::styled(" Name: ", Style::new().fg(Color::Rgb(167, 139, 250))),
@@ -1675,16 +2100,17 @@ impl App {
                 " Letters, numbers, spaces, - and _ are allowed",
                 Style::new().fg(Color::DarkGray),
             )),
-            Line::from(Span::styled(
-                " Enter: save  Esc: cancel  Backspace: delete",
-                Style::new().fg(Color::DarkGray),
-            )),
+            Line::from(Span::styled(enter_label, Style::new().fg(Color::DarkGray))),
         ];
 
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
             .title(" Theme Name ")
-            .title_style(Style::new().fg(Color::Rgb(167, 139, 250)).add_modifier(Modifier::BOLD))
+            .title_style(
+                Style::new()
+                    .fg(Color::Rgb(167, 139, 250))
+                    .add_modifier(Modifier::BOLD),
+            )
             .border_style(Style::new().fg(Color::Rgb(90, 85, 115)))
             .style(Style::new().bg(Color::Rgb(22, 22, 26)));
 
@@ -1716,17 +2142,26 @@ impl App {
         let rows: &[HelpRow<'_>] = &[
             HelpRow::Section("Preview"),
             HelpRow::Entry("↑/j  ↓/k", "Navigate preview elements"),
-            HelpRow::Entry("1–5", "Jump to group (TabBar/Status/Panes/Content/Multiplayer)"),
+            HelpRow::Entry(
+                "1–5",
+                "Jump to group (TabBar/Status/Panes/Content/Multiplayer)",
+            ),
             HelpRow::Entry("/", "Fuzzy search and jump to any element"),
             HelpRow::Entry("Tab", "Toggle FG / BG (pane borders: FG only)"),
             HelpRow::Entry("c", "Open color picker for selected color"),
             HelpRow::Entry("y", "Yank (copy) current color"),
             HelpRow::Entry("p", "Paste yanked color"),
             HelpRow::Entry("u", "Undo last color change"),
+            HelpRow::Entry("z", "Toggle zjstatus bar preview"),
+            HelpRow::Entry("x", "Reset selected zjstatus slot to follow the theme"),
             HelpRow::Entry("s", "Save theme as… (prompts for name)"),
             HelpRow::Entry("l", "Open theme loader"),
             HelpRow::Entry("a", "Apply current theme to Zellij config"),
-            HelpRow::Entry("U", "Install latest released binary on Linux x86_64 when available"),
+            HelpRow::Entry("Pane BG", "Preview aid; terminal BG is separate"),
+            HelpRow::Entry(
+                "U",
+                "Install latest released binary on Linux x86_64 when available",
+            ),
             HelpRow::Entry("?", "Toggle this help screen"),
             HelpRow::Entry("A", "About — credits, links, and a sick Z"),
             HelpRow::Entry("q / Esc", "Quit"),
@@ -1748,10 +2183,10 @@ impl App {
             HelpRow::Entry("↑ ↓", "Navigate themes"),
             HelpRow::Entry("Enter", "Load selected theme into editor"),
             HelpRow::Entry("a", "Apply selected theme to Zellij"),
-            HelpRow::Entry("d", "Filter built-in themes"),
+            HelpRow::Entry("b", "Filter built-in themes"),
             HelpRow::Entry("s", "Filter saved themes"),
             HelpRow::Entry("r", "Rename selected saved theme"),
-            HelpRow::Entry("x", "Delete selected saved theme"),
+            HelpRow::Entry("d", "Delete selected saved theme"),
             HelpRow::Entry("Esc", "Clear search or cancel"),
         ];
 
@@ -1797,9 +2232,21 @@ impl App {
         );
 
         let header_hint = vec![
-            Span::styled(" ↑↓ ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " ↑↓ ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" scroll  ", Style::new().fg(PANEL_MUTED)),
-            Span::styled(" PgUp/PgDn ", Style::new().fg(SUBTLE_FG).bg(SUBTLE_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " PgUp/PgDn ",
+                Style::new()
+                    .fg(SUBTLE_FG)
+                    .bg(SUBTLE_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" jump", Style::new().fg(PANEL_MUTED)),
         ];
         frame.render_widget(
@@ -1813,7 +2260,8 @@ impl App {
         );
 
         let [list_rect, detail_rect] =
-            Layout::horizontal([Constraint::Percentage(66), Constraint::Percentage(34)]).areas(body_rect);
+            Layout::horizontal([Constraint::Percentage(66), Constraint::Percentage(34)])
+                .areas(body_rect);
 
         frame.render_widget(
             Paragraph::new("").block(
@@ -1848,12 +2296,18 @@ impl App {
                     Span::styled(" ", Style::new().bg(PANEL_BG)),
                     Span::styled(
                         format!(" {} ", title),
-                        Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD),
+                        Style::new()
+                            .fg(ACCENT_FG)
+                            .bg(ACCENT_BG)
+                            .add_modifier(Modifier::BOLD),
                     ),
                 ]),
                 HelpRow::Entry(key, desc) => Line::from(vec![
                     Span::styled(" ", Style::new().bg(PANEL_BG)),
-                    Span::styled(format!("{:<18}", key), Style::new().fg(PANEL_TEXT).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("{:<18}", key),
+                        Style::new().fg(PANEL_TEXT).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(desc.to_string(), Style::new().fg(PANEL_MUTED)),
                 ]),
                 HelpRow::Spacer => Line::from(""),
@@ -1909,11 +2363,29 @@ impl App {
         );
 
         let footer_spans = vec![
-            Span::styled(" ↑↓ ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " ↑↓ ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" scroll  ", Style::new().fg(PANEL_MUTED)),
-            Span::styled(" Home/End ", Style::new().fg(SUBTLE_FG).bg(SUBTLE_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Home/End ",
+                Style::new()
+                    .fg(SUBTLE_FG)
+                    .bg(SUBTLE_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" jump  ", Style::new().fg(PANEL_MUTED)),
-            Span::styled(" Esc ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Esc ",
+                Style::new()
+                    .fg(ACCENT_FG)
+                    .bg(ACCENT_BG)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" close", Style::new().fg(PANEL_MUTED)),
         ];
         frame.render_widget(
@@ -1932,7 +2404,7 @@ impl App {
         const Z_FG: Color = Color::Rgb(167, 139, 250);
         const TAGLINE: Color = Color::Rgb(180, 160, 230);
         let z_style = Style::new().fg(Z_FG).add_modifier(Modifier::BOLD);
-        use ratatui::layout::{Constraint, Layout, Alignment};
+        use ratatui::layout::{Alignment, Constraint, Layout};
         use ratatui::{prelude::*, widgets::*};
 
         // Center a 60×20 card on screen
@@ -1955,16 +2427,17 @@ impl App {
             .style(Style::new().bg(PANEL_BG));
         let inner = Layout::vertical([
             Constraint::Length(1),
-            Constraint::Length(9),  // ASCII logo
+            Constraint::Length(9), // ASCII logo
             Constraint::Length(1),
-            Constraint::Length(1),  // subtitle
-            Constraint::Length(1),  // tagline
+            Constraint::Length(1), // subtitle
+            Constraint::Length(1), // tagline
             Constraint::Length(1),
-            Constraint::Length(2),  // links
+            Constraint::Length(2), // links
             Constraint::Fill(1),
         ])
         .areas(outer.inner(card));
-        let [_spacer1, logo_area, _spacer2, subtitle_area, tagline_area, _spacer3, links_area, _fill] = inner;
+        let [_spacer1, logo_area, _spacer2, subtitle_area, tagline_area, _spacer3, links_area, _fill] =
+            inner;
         frame.render_widget(outer, card);
 
         // ASCII ZELLIT logo
@@ -2021,10 +2494,7 @@ impl App {
         let links = vec![
             Line::from(vec![
                 Span::styled(" repo:    ", Style::new().fg(MUTED)),
-                Span::styled(
-                    "github.com/allisonhere/zellit",
-                    Style::new().fg(LINK),
-                ),
+                Span::styled("github.com/allisonhere/zellit", Style::new().fg(LINK)),
             ]),
             Line::from(vec![
                 Span::styled(" issues:  ", Style::new().fg(MUTED)),
@@ -2042,7 +2512,10 @@ impl App {
         // Footer — press any key
         let footer = vec![Span::styled(
             " press any key to close ",
-            Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(ACCENT_FG)
+                .bg(ACCENT_BG)
+                .add_modifier(Modifier::BOLD),
         )];
         let footer_area = Rect {
             x: card.x + 1,
@@ -2092,12 +2565,18 @@ impl App {
             Line::from(vec![
                 Span::styled(
                     " Enter ",
-                    Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" restart now  ", Style::new().fg(PANEL_MUTED)),
                 Span::styled(
                     " L ",
-                    Style::new().fg(SUBTLE_FG).bg(SUBTLE_BG).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(SUBTLE_FG)
+                        .bg(SUBTLE_BG)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" later", Style::new().fg(PANEL_MUTED)),
             ]),
@@ -2162,7 +2641,11 @@ impl App {
                 display_query.to_string()
             }
         );
-        let search_fg = if display_query.is_empty() { PANEL_DIM } else { PANEL_TEXT };
+        let search_fg = if display_query.is_empty() {
+            PANEL_DIM
+        } else {
+            PANEL_TEXT
+        };
         let search_spans = vec![Span::styled(search_label, Style::new().fg(search_fg))];
         let search_w: usize = search_spans.iter().map(|s| s.width()).sum();
         let gap = (inner.width as usize).saturating_sub(title_w + search_w + count_w);
@@ -2172,7 +2655,12 @@ impl App {
         header_spans.push(Span::styled("  ", Style::new().bg(PANEL_BG)));
         header_spans.extend(count_spans);
 
-        let header_rect = Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 };
+        let header_rect = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        };
         frame.render_widget(
             Paragraph::new(Line::from(header_spans)).style(Style::new().bg(PANEL_BG)),
             header_rect,
@@ -2189,22 +2677,36 @@ impl App {
                 Span::styled("", Style::new().fg(key_bg).bg(PANEL_BG)),
                 Span::styled(
                     format!(" {} ", key),
-                    Style::new().fg(key_fg).bg(key_bg).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(key_fg)
+                        .bg(key_bg)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("", Style::new().fg(lbl_bg).bg(key_bg)),
-                Span::styled(
-                    format!(" {} ", label),
-                    Style::new().fg(lbl_fg).bg(lbl_bg),
-                ),
+                Span::styled(format!(" {} ", label), Style::new().fg(lbl_fg).bg(lbl_bg)),
                 Span::styled("", Style::new().fg(lbl_bg).bg(PANEL_BG)),
                 Span::raw(" "),
             ]
         };
 
-        let mut filter_spans = filter_pill("A", "all", matches!(self.theme_filter, ThemeFilter::All));
-        filter_spans.extend(filter_pill("B", "built-in", matches!(self.theme_filter, ThemeFilter::Builtin)));
-        filter_spans.extend(filter_pill("S", "saved", matches!(self.theme_filter, ThemeFilter::Saved)));
-        let filter_rect = Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: 1 };
+        let mut filter_spans =
+            filter_pill("A", "all", matches!(self.theme_filter, ThemeFilter::All));
+        filter_spans.extend(filter_pill(
+            "B",
+            "built-in",
+            matches!(self.theme_filter, ThemeFilter::Builtin),
+        ));
+        filter_spans.extend(filter_pill(
+            "S",
+            "saved",
+            matches!(self.theme_filter, ThemeFilter::Saved),
+        ));
+        let filter_rect = Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: 1,
+        };
         frame.render_widget(
             Paragraph::new(Line::from(filter_spans)).style(Style::new().bg(PANEL_BG)),
             filter_rect,
@@ -2232,7 +2734,10 @@ impl App {
         if self.loadable_themes.is_empty() {
             frame.render_widget(
                 Paragraph::new(vec![
-                    Line::from(Span::styled(" No themes match ", Style::new().fg(PANEL_TEXT).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        " No themes match ",
+                        Style::new().fg(PANEL_TEXT).add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(""),
                     Line::from(Span::styled(
                         format!(" \"/{}\"", display_query),
@@ -2254,7 +2759,13 @@ impl App {
                     width: list_inner.width,
                     height: 1,
                 };
-                self.render_theme_card(frame, row_rect, i, i == self.selected_theme_index, &active_name);
+                self.render_theme_card(
+                    frame,
+                    row_rect,
+                    i,
+                    i == self.selected_theme_index,
+                    &active_name,
+                );
             }
         }
 
@@ -2266,13 +2777,45 @@ impl App {
         };
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(" ↑↓ ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " ↑↓ ",
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" move  ", Style::new().fg(PANEL_MUTED)),
-                Span::styled(" Enter ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " Enter ",
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" load  ", Style::new().fg(PANEL_MUTED)),
-                Span::styled(" type ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " a ",
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" apply  ", Style::new().fg(PANEL_MUTED)),
+                Span::styled(
+                    " type ",
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" filter  ", Style::new().fg(PANEL_MUTED)),
-                Span::styled(" Esc ", Style::new().fg(ACCENT_FG).bg(ACCENT_BG).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " Esc ",
+                    Style::new()
+                        .fg(ACCENT_FG)
+                        .bg(ACCENT_BG)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" close", Style::new().fg(PANEL_MUTED)),
             ]))
             .style(Style::new().bg(PANEL_BG)),
@@ -2289,7 +2832,10 @@ impl App {
         active_name: &Option<String>,
     ) {
         let entry = &self.loadable_themes[index];
-        let swatches = self.theme_swatches.get(entry.name()).copied()
+        let swatches = self
+            .theme_swatches
+            .get(entry.name())
+            .copied()
             .unwrap_or([crate::theme::RgbColor::new(50, 50, 50); 4]);
         let is_active = active_name.as_deref() == Some(entry.name());
         let row_bg = if selected {
@@ -2308,15 +2854,21 @@ impl App {
             Color::Rgb(108, 108, 132)
         };
 
-        let mut spans = vec![
-            Span::styled(
-                if selected { "> " } else { "  " },
-                Style::new()
-                    .fg(if selected { Color::Rgb(200, 190, 240) } else { Color::Rgb(72, 72, 92) })
-                    .bg(row_bg)
-                    .add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
-            ),
-        ];
+        let mut spans = vec![Span::styled(
+            if selected { "> " } else { "  " },
+            Style::new()
+                .fg(if selected {
+                    Color::Rgb(200, 190, 240)
+                } else {
+                    Color::Rgb(72, 72, 92)
+                })
+                .bg(row_bg)
+                .add_modifier(if selected {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
+        )];
 
         let type_label = if entry.is_builtin() { "B" } else { "S" };
         let detail_w = if selected { 12 } else { 4 };
@@ -2325,7 +2877,10 @@ impl App {
         let clipped_name = clip_text(entry.name(), name_width);
         spans.push(Span::styled(
             format!("{:<width$}", clipped_name, width = name_width),
-            Style::new().fg(row_fg).bg(row_bg).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(row_fg)
+                .bg(row_bg)
+                .add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::styled(" ", Style::new().bg(row_bg)));
         if selected {
@@ -2337,17 +2892,26 @@ impl App {
             }
             spans.push(Span::styled(
                 type_label,
-                Style::new().fg(type_fg).bg(row_bg).add_modifier(Modifier::BOLD),
+                Style::new()
+                    .fg(type_fg)
+                    .bg(row_bg)
+                    .add_modifier(Modifier::BOLD),
             ));
         } else if is_active {
             spans.push(Span::styled(
                 "● ",
                 Style::new().fg(Color::Rgb(110, 220, 110)).bg(row_bg),
             ));
-            spans.push(Span::styled(type_label, Style::new().fg(type_fg).bg(row_bg)));
+            spans.push(Span::styled(
+                type_label,
+                Style::new().fg(type_fg).bg(row_bg),
+            ));
         } else {
             spans.push(Span::styled("  ", Style::new().bg(row_bg)));
-            spans.push(Span::styled(type_label, Style::new().fg(type_fg).bg(row_bg)));
+            spans.push(Span::styled(
+                type_label,
+                Style::new().fg(type_fg).bg(row_bg),
+            ));
         }
 
         frame.render_widget(

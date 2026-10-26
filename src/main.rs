@@ -3,6 +3,7 @@ mod config;
 mod theme;
 mod ui;
 mod update;
+mod zjstatus;
 
 use ui::App;
 

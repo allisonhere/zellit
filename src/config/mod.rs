@@ -1,4 +1,5 @@
 use crate::theme::{RgbColor, Theme, ThemeComponent, ThemeComponentType};
+use crate::zjstatus::{plugin_locations, recolor_layout, ZjStatusStyle};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
@@ -62,10 +63,61 @@ impl ConfigManager {
 
         if kdl_path.exists() {
             let content = fs::read_to_string(&kdl_path)?;
-            parse_theme_kdl(&content, name)
+            let mut theme = parse_theme_kdl(&content, name)?;
+            self.load_zjstatus_overrides(&mut theme);
+            Ok(theme)
         } else {
             Ok(Theme::default())
         }
+    }
+
+    fn zjstatus_sidecar(&self, name: &str) -> PathBuf {
+        self.themes_dir.join(format!("{name}.zjstatus.json"))
+    }
+
+    /// Hand-edited zjstatus slots live beside the theme, since Zellij's theme KDL has no place
+    /// for them. Unreadable or unknown entries are ignored.
+    fn load_zjstatus_overrides(&self, theme: &mut Theme) {
+        let Ok(raw) = fs::read_to_string(self.zjstatus_sidecar(&theme.name)) else {
+            return;
+        };
+        let Ok(slots) = serde_json::from_str::<HashMap<String, [String; 2]>>(&raw) else {
+            return;
+        };
+        for slot in ThemeComponentType::zjstatus() {
+            let Some([fg, bg]) = slots.get(slot.component_key()) else {
+                continue;
+            };
+            if let (Some(base), Some(background)) = (RgbColor::from_hex(fg), RgbColor::from_hex(bg)) {
+                let comp = theme.get_mut(*slot);
+                comp.base = base;
+                comp.background = background;
+                theme.zj_overrides.insert(*slot);
+            }
+        }
+        theme.sync_zjstatus();
+    }
+
+    fn save_zjstatus_overrides(&self, theme: &Theme) -> Result<(), ConfigError> {
+        let path = self.zjstatus_sidecar(&theme.name);
+        let slots: HashMap<&str, [String; 2]> = ThemeComponentType::zjstatus()
+            .iter()
+            .filter(|slot| theme.zj_overrides.contains(slot))
+            .map(|slot| {
+                let c = theme.get(*slot);
+                (slot.component_key(), [c.base.to_hex(), c.background.to_hex()])
+            })
+            .collect();
+        if slots.is_empty() {
+            if path.exists() {
+                fs::remove_file(path)?;
+            }
+        } else {
+            let json = serde_json::to_string_pretty(&slots)
+                .map_err(|e| ConfigError::KdlParse(e.to_string()))?;
+            fs::write(path, json)?;
+        }
+        Ok(())
     }
 
     pub fn save_theme(&self, theme: &Theme) -> Result<(), ConfigError> {
@@ -73,6 +125,7 @@ impl ConfigManager {
         let kdl_path = self.themes_dir.join(format!("{}.kdl", theme.name));
         let content = theme_to_kdl(theme);
         fs::write(kdl_path, content)?;
+        self.save_zjstatus_overrides(theme)?;
         Ok(())
     }
 
@@ -80,16 +133,25 @@ impl ConfigManager {
         let old_path = self.themes_dir.join(format!("{}.kdl", old_name));
         let new_path = self.themes_dir.join(format!("{}.kdl", new_name));
         fs::rename(&old_path, &new_path)?;
+        let (old_side, new_side) = (self.zjstatus_sidecar(old_name), self.zjstatus_sidecar(new_name));
+        if old_side.exists() {
+            fs::rename(old_side, new_side)?;
+        }
         Ok(())
     }
 
     pub fn delete_theme(&self, name: &str) -> Result<(), ConfigError> {
         let path = self.themes_dir.join(format!("{}.kdl", name));
         fs::remove_file(&path)?;
+        let side = self.zjstatus_sidecar(name);
+        if side.exists() {
+            fs::remove_file(side)?;
+        }
         Ok(())
     }
 
-    pub fn apply_theme_to_zellij(&self, theme: &Theme) -> Result<(), ConfigError> {
+    /// Returns a note about the zjstatus step when something needs the user's attention.
+    pub fn apply_theme_to_zellij(&self, theme: &Theme) -> Result<Option<String>, ConfigError> {
         self.save_theme(theme)?;
 
         let config_path = self.config_dir.join("config.kdl");
@@ -100,7 +162,10 @@ impl ConfigManager {
         };
 
         let theme_line = format!("theme \"{}\"", theme.name);
-        let updated = if existing.lines().any(|l| l.trim_start().starts_with("theme ")) {
+        let updated = if existing
+            .lines()
+            .any(|l| l.trim_start().starts_with("theme "))
+        {
             existing
                 .lines()
                 .map(|l| {
@@ -120,9 +185,115 @@ impl ConfigManager {
         };
 
         fs::write(config_path, updated)?;
-        Ok(())
+
+        // zjstatus has no theme integration, so keep its layout colors in sync. Failure here
+        // must not fail the theme apply itself.
+        let mut note = None;
+        if let Ok(changed) = self.apply_zjstatus(theme) {
+            note = missing_plugin_note(&changed);
+            if note.is_none() {
+                reload_default_layout(&changed);
+            }
+        }
+        Ok(note)
     }
 
+    /// Layout files under `layouts/` that contain a zjstatus plugin block, with their content.
+    fn zjstatus_layouts(&self) -> Result<Vec<(PathBuf, String)>, ConfigError> {
+        let entries = match fs::read_dir(self.config_dir.join("layouts")) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut found = Vec::new();
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("kdl") {
+                continue;
+            }
+            if let Ok(content) = fs::read_to_string(&path) {
+                if !plugin_locations(&content).is_empty() {
+                    found.push((path, content));
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// True when any layout uses the zjstatus plugin.
+    pub fn zjstatus_detected(&self) -> bool {
+        self.zjstatus_layouts().is_ok_and(|l| !l.is_empty())
+    }
+
+    /// Recolors every zjstatus plugin in `layouts/*.kdl` from `theme`, keeping a one-time
+    /// `.kdl.bak` of each file. Returns the layout files that changed.
+    pub fn apply_zjstatus(&self, theme: &Theme) -> Result<Vec<PathBuf>, ConfigError> {
+        let style = ZjStatusStyle::from_theme(theme);
+        let mut changed = Vec::new();
+
+        for (path, content) in self.zjstatus_layouts()? {
+            let updated = recolor_layout(&content, &style);
+            if updated == content {
+                continue;
+            }
+            let backup = path.with_extension("kdl.bak");
+            if !backup.exists() {
+                fs::write(&backup, &content)?;
+            }
+            fs::write(&path, updated)?;
+            changed.push(path);
+        }
+        Ok(changed)
+    }
+}
+
+/// A warning when a recolored layout points at a zjstatus `.wasm` that isn't on disk.
+fn missing_plugin_note(changed: &[PathBuf]) -> Option<String> {
+    let home = dirs::home_dir()?;
+    changed.iter().find_map(|path| {
+        let content = fs::read_to_string(path).ok()?;
+        plugin_locations(&content).into_iter().find_map(|loc| {
+            let resolved = match loc.strip_prefix("~/") {
+                Some(rest) => home.join(rest),
+                None => PathBuf::from(&loc),
+            };
+            (!resolved.exists()).then(|| format!("zjstatus plugin not found at {loc}"))
+        })
+    })
+}
+
+/// Live-reloads the recolored default layout into the running Zellij tab (zjstatus only
+/// reads its colors at load time). A no-op outside Zellij or when the current tab doesn't run
+/// zjstatus; failures are ignored. Zellij's
+/// stored new-tab template keeps the old colors until the session restarts.
+fn reload_default_layout(changed: &[PathBuf]) {
+    if std::env::var_os("ZELLIJ").is_none() {
+        return;
+    }
+    let Some(path) = changed
+        .iter()
+        .find(|p| p.file_name().is_some_and(|n| n == "default.kdl"))
+    else {
+        return;
+    };
+    // override-layout swaps the whole tab for the layout file, so only do it when the tab
+    // already runs zjstatus; otherwise it would drop panes/bars the session started with
+    // (e.g. a top tab bar).
+    let running = std::process::Command::new("zellij")
+        .args(["action", "dump-layout"])
+        .stderr(std::process::Stdio::null())
+        .output();
+    let uses_zjstatus = running
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains("zjstatus"));
+    if !uses_zjstatus {
+        return;
+    }
+    let _ = std::process::Command::new("zellij")
+        .args(["action", "override-layout"])
+        .arg(path)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 impl Default for ConfigManager {
@@ -223,10 +394,14 @@ pub fn parse_theme_kdl(content: &str, name: &str) -> Result<Theme, ConfigError> 
 
     apply_missing_component_fallbacks(&mut theme, &seen);
 
-    if let Some(mp_node) = children.iter().find(|n| n.name().value() == "multiplayer_user_colors") {
+    if let Some(mp_node) = children
+        .iter()
+        .find(|n| n.name().value() == "multiplayer_user_colors")
+    {
         apply_multiplayer_colors(&mut theme, mp_node, &palette);
     }
 
+    theme.sync_zjstatus();
     Ok(theme)
 }
 
@@ -285,9 +460,7 @@ fn build_scalar_palette(nodes: &[kdl::KdlNode]) -> [RgbColor; 16] {
 }
 
 fn muted_from_text(text: &ThemeComponent) -> RgbColor {
-    let blend = |bg: u8, fg: u8| -> u8 {
-        ((u16::from(bg) * 3 + u16::from(fg)) / 4) as u8
-    };
+    let blend = |bg: u8, fg: u8| -> u8 { ((u16::from(bg) * 3 + u16::from(fg)) / 4) as u8 };
 
     RgbColor::new(
         blend(text.background.r, text.base.r),
@@ -319,17 +492,17 @@ fn blend_color(a: RgbColor, b: RgbColor) -> RgbColor {
 }
 
 fn theme_from_palette(nodes: &[kdl::KdlNode], name: &str) -> Theme {
-    let black   = parse_palette_color(nodes, "black")  .unwrap_or(RgbColor::new(30, 30, 30));
-    let fg      = parse_palette_color(nodes, "fg")     .unwrap_or(RgbColor::new(200, 200, 200));
-    let bg      = parse_palette_color(nodes, "bg")     .unwrap_or(RgbColor::new(40, 40, 40));
-    let white   = parse_palette_color(nodes, "white")  .unwrap_or(RgbColor::new(240, 240, 240));
-    let red     = parse_palette_color(nodes, "red")    .unwrap_or(RgbColor::new(220, 80, 80));
-    let green   = parse_palette_color(nodes, "green")  .unwrap_or(RgbColor::new(80, 200, 80));
-    let yellow  = parse_palette_color(nodes, "yellow") .unwrap_or(RgbColor::new(220, 190, 100));
-    let blue    = parse_palette_color(nodes, "blue")   .unwrap_or(RgbColor::new(80, 130, 210));
+    let black = parse_palette_color(nodes, "black").unwrap_or(RgbColor::new(30, 30, 30));
+    let fg = parse_palette_color(nodes, "fg").unwrap_or(RgbColor::new(200, 200, 200));
+    let bg = parse_palette_color(nodes, "bg").unwrap_or(RgbColor::new(40, 40, 40));
+    let white = parse_palette_color(nodes, "white").unwrap_or(RgbColor::new(240, 240, 240));
+    let red = parse_palette_color(nodes, "red").unwrap_or(RgbColor::new(220, 80, 80));
+    let green = parse_palette_color(nodes, "green").unwrap_or(RgbColor::new(80, 200, 80));
+    let yellow = parse_palette_color(nodes, "yellow").unwrap_or(RgbColor::new(220, 190, 100));
+    let blue = parse_palette_color(nodes, "blue").unwrap_or(RgbColor::new(80, 130, 210));
     let magenta = parse_palette_color(nodes, "magenta").unwrap_or(RgbColor::new(180, 100, 200));
-    let cyan    = parse_palette_color(nodes, "cyan")   .unwrap_or(RgbColor::new(80, 200, 200));
-    let orange  = parse_palette_color(nodes, "orange") .unwrap_or(yellow);
+    let cyan = parse_palette_color(nodes, "cyan").unwrap_or(RgbColor::new(80, 200, 200));
+    let orange = parse_palette_color(nodes, "orange").unwrap_or(yellow);
 
     // A slightly lighter bg for "selected" backgrounds
     let bg_sel = RgbColor::new(
@@ -348,39 +521,59 @@ fn theme_from_palette(nodes: &[kdl::KdlNode], name: &str) -> Theme {
     };
 
     let mut components = HashMap::new();
-    components.insert(ThemeComponentType::TextUnselected,       mk(fg,      bg));
-    components.insert(ThemeComponentType::TextSelected,         mk(white,   bg_sel));
-    components.insert(ThemeComponentType::RibbonUnselected,     mk(fg,      bg));
-    components.insert(ThemeComponentType::RibbonSelected,       mk(bg,      blue));
-    components.insert(ThemeComponentType::TableTitle,           mk(blue,    bg));
-    components.insert(ThemeComponentType::TableCellUnselected,  mk(fg,      bg));
-    components.insert(ThemeComponentType::TableCellSelected,    mk(white,   bg_sel));
-    components.insert(ThemeComponentType::ListUnselected,       mk(fg,      bg));
-    components.insert(ThemeComponentType::ListSelected,         mk(white,   blue));
-    components.insert(ThemeComponentType::FrameUnselected,      mk(black,   bg));
-    components.insert(ThemeComponentType::FrameSelected,        mk(blue,    bg));
-    components.insert(ThemeComponentType::FrameHighlight,       mk(orange,  bg));
-    components.insert(ThemeComponentType::ExitCodeSuccess,      mk(green,   bg));
-    components.insert(ThemeComponentType::ExitCodeError,        mk(red,     bg));
+    components.insert(ThemeComponentType::TextUnselected, mk(fg, bg));
+    components.insert(ThemeComponentType::TextSelected, mk(white, bg_sel));
+    components.insert(ThemeComponentType::RibbonUnselected, mk(fg, bg));
+    components.insert(ThemeComponentType::RibbonSelected, mk(bg, blue));
+    components.insert(ThemeComponentType::TableTitle, mk(blue, bg));
+    components.insert(ThemeComponentType::TableCellUnselected, mk(fg, bg));
+    components.insert(ThemeComponentType::TableCellSelected, mk(white, bg_sel));
+    components.insert(ThemeComponentType::ListUnselected, mk(fg, bg));
+    components.insert(ThemeComponentType::ListSelected, mk(white, blue));
+    components.insert(ThemeComponentType::FrameUnselected, mk(black, bg));
+    components.insert(ThemeComponentType::FrameSelected, mk(blue, bg));
+    components.insert(ThemeComponentType::FrameHighlight, mk(orange, bg));
+    components.insert(ThemeComponentType::ExitCodeSuccess, mk(green, bg));
+    components.insert(ThemeComponentType::ExitCodeError, mk(red, bg));
 
     let mk_player = |base: RgbColor| ThemeComponent::new(base, RgbColor::new(0, 0, 0));
     components.insert(ThemeComponentType::Player1, mk_player(magenta));
     components.insert(ThemeComponentType::Player2, mk_player(blue));
-    components.insert(ThemeComponentType::Player3, mk_player(blend_color(magenta, blue)));
+    components.insert(
+        ThemeComponentType::Player3,
+        mk_player(blend_color(magenta, blue)),
+    );
     components.insert(ThemeComponentType::Player4, mk_player(yellow));
     components.insert(ThemeComponentType::Player5, mk_player(cyan));
-    components.insert(ThemeComponentType::Player6, mk_player(blend_color(yellow, orange)));
+    components.insert(
+        ThemeComponentType::Player6,
+        mk_player(blend_color(yellow, orange)),
+    );
     components.insert(ThemeComponentType::Player7, mk_player(red));
-    components.insert(ThemeComponentType::Player8, mk_player(blend_color(white, black)));
-    components.insert(ThemeComponentType::Player9, mk_player(blend_color(magenta, white)));
-    components.insert(ThemeComponentType::Player10, mk_player(blend_color(red, black)));
+    components.insert(
+        ThemeComponentType::Player8,
+        mk_player(blend_color(white, black)),
+    );
+    components.insert(
+        ThemeComponentType::Player9,
+        mk_player(blend_color(magenta, white)),
+    );
+    components.insert(
+        ThemeComponentType::Player10,
+        mk_player(blend_color(red, black)),
+    );
 
     let mut theme = Theme {
         name: name.to_string(),
         components,
+        zj_overrides: HashSet::new(),
     };
+    theme.sync_zjstatus();
 
-    if let Some(mp_node) = nodes.iter().find(|n| n.name().value() == "multiplayer_user_colors") {
+    if let Some(mp_node) = nodes
+        .iter()
+        .find(|n| n.name().value() == "multiplayer_user_colors")
+    {
         let palette = build_scalar_palette(nodes);
         apply_multiplayer_colors(&mut theme, mp_node, &palette);
     }
@@ -400,7 +593,10 @@ fn apply_multiplayer_colors(theme: &mut Theme, node: &kdl::KdlNode, palette: &[R
         .unwrap_or_default();
 
     for player in ThemeComponentType::players() {
-        let Some(child) = children.iter().find(|n| n.name().value() == player.component_key()) else {
+        let Some(child) = children
+            .iter()
+            .find(|n| n.name().value() == player.component_key())
+        else {
             continue;
         };
         let entries: Vec<_> = child.entries().iter().collect();
@@ -471,22 +667,29 @@ fn theme_to_kdl(theme: &Theme) -> String {
 
     // Include standard Zellij palette keys so older Zellij versions (e.g. on
     // Ubuntu/Pop!_OS) can parse the file without "missing fg" errors.
-    let fg      = theme.get(ThemeComponentType::TextUnselected).base;
-    let bg      = theme.get(ThemeComponentType::TextUnselected).background;
-    let white   = theme.get(ThemeComponentType::TextSelected).base;
-    let black   = theme.get(ThemeComponentType::TextUnselected).emphasis_3;
-    let blue    = theme.get(ThemeComponentType::RibbonSelected).background;
-    let green   = theme.get(ThemeComponentType::ExitCodeSuccess).base;
-    let red     = theme.get(ThemeComponentType::ExitCodeError).base;
-    let yellow  = theme.get(ThemeComponentType::FrameHighlight).base;
+    let fg = theme.get(ThemeComponentType::TextUnselected).base;
+    let bg = theme.get(ThemeComponentType::TextUnselected).background;
+    let white = theme.get(ThemeComponentType::TextSelected).base;
+    let black = theme.get(ThemeComponentType::TextUnselected).emphasis_3;
+    let blue = theme.get(ThemeComponentType::RibbonSelected).background;
+    let green = theme.get(ThemeComponentType::ExitCodeSuccess).base;
+    let red = theme.get(ThemeComponentType::ExitCodeError).base;
+    let yellow = theme.get(ThemeComponentType::FrameHighlight).base;
     let magenta = theme.get(ThemeComponentType::RibbonUnselected).emphasis_0;
-    let cyan    = theme.get(ThemeComponentType::RibbonUnselected).emphasis_2;
-    let orange  = theme.get(ThemeComponentType::FrameHighlight).base;
+    let cyan = theme.get(ThemeComponentType::RibbonUnselected).emphasis_2;
+    let orange = theme.get(ThemeComponentType::FrameHighlight).base;
 
     for (key, c) in &[
-        ("fg", fg), ("bg", bg), ("black", black), ("red", red),
-        ("green", green), ("yellow", yellow), ("blue", blue),
-        ("magenta", magenta), ("cyan", cyan), ("white", white),
+        ("fg", fg),
+        ("bg", bg),
+        ("black", black),
+        ("red", red),
+        ("green", green),
+        ("yellow", yellow),
+        ("blue", blue),
+        ("magenta", magenta),
+        ("cyan", cyan),
+        ("white", white),
         ("orange", orange),
     ] {
         output.push_str(&format!("        {} {} {} {}\n", key, c.r, c.g, c.b));
@@ -527,7 +730,10 @@ fn theme_to_kdl(theme: &Theme) -> String {
         let c = theme.get(*player).base;
         output.push_str(&format!(
             "            {} {} {} {}\n",
-            player.component_key(), c.r, c.g, c.b
+            player.component_key(),
+            c.r,
+            c.g,
+            c.b
         ));
     }
     output.push_str("        }\n");
@@ -539,7 +745,8 @@ fn theme_to_kdl(theme: &Theme) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_theme_kdl, theme_to_kdl};
+    use super::{parse_theme_kdl, theme_to_kdl, ConfigManager};
+    use std::fs;
     use crate::theme::{RgbColor, Theme, ThemeComponentType};
 
     #[test]
@@ -563,6 +770,24 @@ mod tests {
     }
 
     #[test]
+    fn saved_theme_kdl_does_not_include_terminal_pane_background() {
+        let mut theme = Theme {
+            name: "ui-backgrounds-only".to_string(),
+            ..Default::default()
+        };
+        theme.get_mut(ThemeComponentType::TextUnselected).background = RgbColor::new(12, 34, 56);
+
+        let saved = theme_to_kdl(&theme);
+
+        assert!(saved.contains("text_unselected"));
+        assert!(saved.contains("background 12 34 56"));
+        assert!(!saved.contains("default_bg"));
+        assert!(!saved.contains("set-pane-color"));
+        assert!(!saved.contains("pane_background"));
+        assert!(!saved.contains("terminal_background"));
+    }
+
+    #[test]
     fn multiplayer_colors_round_trip_through_save_and_load() {
         let mut theme = Theme::default();
         theme.name = "mp-round-trip".to_string();
@@ -573,8 +798,14 @@ mod tests {
         assert!(saved.contains("multiplayer_user_colors"));
         let loaded = parse_theme_kdl(&saved, &theme.name).expect("saved theme should parse");
 
-        assert_eq!(loaded.get(ThemeComponentType::Player3).base, RgbColor::new(11, 22, 33));
-        assert_eq!(loaded.get(ThemeComponentType::Player10).base, RgbColor::new(44, 55, 66));
+        assert_eq!(
+            loaded.get(ThemeComponentType::Player3).base,
+            RgbColor::new(11, 22, 33)
+        );
+        assert_eq!(
+            loaded.get(ThemeComponentType::Player10).base,
+            RgbColor::new(44, 55, 66)
+        );
     }
 
     #[test]
@@ -687,5 +918,84 @@ mod tests {
                 let _ = theme.get(*component_type);
             }
         }
+    }
+
+    #[test]
+    fn zjstatus_overrides_round_trip_through_sidecar() {
+        let dir = std::env::temp_dir().join(format!("zellit-zj-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let cm = ConfigManager {
+            config_dir: dir.clone(),
+            themes_dir: dir.join("themes"),
+        };
+
+        let mut theme = Theme {
+            name: "zjtest".into(),
+            ..Theme::default()
+        };
+        theme.get_mut(ThemeComponentType::ZjAccent).background = RgbColor::new(10, 20, 30);
+        theme.zj_overrides.insert(ThemeComponentType::ZjAccent);
+        cm.save_theme(&theme).unwrap();
+        assert!(!fs::read_to_string(dir.join("themes/zjtest.kdl")).unwrap().contains("zj_"));
+
+        let loaded = cm.load_theme("zjtest").unwrap();
+        assert!(loaded.zj_overrides.contains(&ThemeComponentType::ZjAccent));
+        assert_eq!(
+            loaded.get(ThemeComponentType::ZjAccent).background,
+            RgbColor::new(10, 20, 30)
+        );
+
+        let mut cleared = loaded;
+        cleared.zj_overrides.clear();
+        cm.save_theme(&cleared).unwrap();
+        assert!(!dir.join("themes/zjtest.zjstatus.json").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn zjstatus_detected_only_with_plugin_block() {
+        let dir = std::env::temp_dir().join(format!("zellit-zjd-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("layouts")).unwrap();
+        let cm = ConfigManager {
+            config_dir: dir.clone(),
+            themes_dir: dir.join("themes"),
+        };
+        fs::write(dir.join("layouts/a.kdl"), "layout {\n pane\n}\n").unwrap();
+        assert!(!cm.zjstatus_detected());
+        fs::write(
+            dir.join("layouts/b.kdl"),
+            "layout {\n plugin location=\"file:x/zjstatus.wasm\" {\n }\n}\n",
+        )
+        .unwrap();
+        assert!(cm.zjstatus_detected());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_theme_recolors_layout_and_sets_theme_line() {
+        let dir = std::env::temp_dir().join(format!("zellit-apply-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("layouts")).unwrap();
+        fs::write(dir.join("config.kdl"), "theme \"old\"\n").unwrap();
+        fs::write(
+            dir.join("layouts/default.kdl"),
+            "layout {\n plugin location=\"file:/nope/zjstatus.wasm\" {\n  format_space \"#[bg=#111111]\"\n }\n}\n",
+        )
+        .unwrap();
+        let cm = ConfigManager {
+            config_dir: dir.clone(),
+            themes_dir: dir.join("themes"),
+        };
+        let theme = Theme {
+            name: "applytest".into(),
+            ..Theme::default()
+        };
+        let note = cm.apply_theme_to_zellij(&theme).unwrap();
+        assert!(note.is_some_and(|n| n.contains("not found")));
+        assert!(fs::read_to_string(dir.join("config.kdl")).unwrap().contains("theme \"applytest\""));
+        assert!(!fs::read_to_string(dir.join("layouts/default.kdl")).unwrap().contains("#111111"));
+        assert!(dir.join("layouts/default.kdl.bak").exists());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct RgbColor {
@@ -78,6 +78,10 @@ impl ThemeComponent {
 pub struct Theme {
     pub name: String,
     pub components: HashMap<ThemeComponentType, ThemeComponent>,
+    /// zjstatus slots the user edited by hand. The rest follow the theme (see
+    /// `Theme::sync_zjstatus`). Never written to the Zellij theme KDL.
+    #[serde(default)]
+    pub zj_overrides: HashSet<ThemeComponentType>,
 }
 
 impl Theme {
@@ -154,10 +158,13 @@ impl Default for Theme {
         for (player, color) in ThemeComponentType::players().iter().zip(DEFAULT_PLAYER_COLORS) {
             components.insert(*player, ThemeComponent::new(color, RgbColor::new(0, 0, 0)));
         }
-        Self {
+        let mut theme = Self {
             name: String::from("default"),
             components,
-        }
+            zj_overrides: HashSet::new(),
+        };
+        theme.sync_zjstatus();
+        theme
     }
 }
 
@@ -207,9 +214,31 @@ pub enum ThemeComponentType {
     Player8,
     Player9,
     Player10,
+    // zjstatus slots: Zellij has no such components; they live beside the real ones so the
+    // editor can treat them uniformly, and are kept out of `all()` / the theme KDL.
+    ZjBar,
+    ZjAccent,
+    ZjTabActive,
+    ZjTabInactive,
+    ZjMuted,
 }
 
 impl ThemeComponentType {
+    /// The zjstatus slots, in sidebar order.
+    pub fn zjstatus() -> &'static [Self; 5] {
+        &[
+            Self::ZjBar,
+            Self::ZjAccent,
+            Self::ZjTabActive,
+            Self::ZjTabInactive,
+            Self::ZjMuted,
+        ]
+    }
+
+    pub fn is_zjstatus(&self) -> bool {
+        Self::zjstatus().contains(self)
+    }
+
     #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
@@ -237,6 +266,11 @@ impl ThemeComponentType {
             Self::Player8 => "Player 8",
             Self::Player9 => "Player 9",
             Self::Player10 => "Player 10",
+            Self::ZjBar => "zjstatus Bar",
+            Self::ZjAccent => "zjstatus Accent",
+            Self::ZjTabActive => "zjstatus Tab (Active)",
+            Self::ZjTabInactive => "zjstatus Tab (Inactive)",
+            Self::ZjMuted => "zjstatus Muted",
         }
     }
 
@@ -266,6 +300,11 @@ impl ThemeComponentType {
             Self::Player8 => "player_8",
             Self::Player9 => "player_9",
             Self::Player10 => "player_10",
+            Self::ZjBar => "zj_bar",
+            Self::ZjAccent => "zj_accent",
+            Self::ZjTabActive => "zj_tab_active",
+            Self::ZjTabInactive => "zj_tab_inactive",
+            Self::ZjMuted => "zj_muted",
         }
     }
 

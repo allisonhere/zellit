@@ -45,6 +45,12 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                     app.select_group_index(5);
                     app.message = None;
                 }
+                KeyCode::Char('6') => {
+                    app.select_group_index(6);
+                }
+                KeyCode::Char('x') => {
+                    app.reset_zjstatus_slot();
+                }
                 KeyCode::Char('/') => {
                     app.open_field_search();
                 }
@@ -69,6 +75,9 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                     } else {
                         app.apply_theme_to_zellij();
                     }
+                }
+                KeyCode::Char('z') => {
+                    app.show_zjstatus = !app.show_zjstatus;
                 }
                 KeyCode::Char('?') => {
                     app.message = None;
@@ -138,7 +147,9 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                     KeyCode::Enter => match app.color_editor.focus {
                         ColorPickerFocus::HexField
                         | ColorPickerFocus::RgbField(_)
-                        | ColorPickerFocus::HslFieldValue(_) => app.color_editor.start_editing_focused(),
+                        | ColorPickerFocus::HslFieldValue(_) => {
+                            app.color_editor.start_editing_focused()
+                        }
                         ColorPickerFocus::ModeToggle => app.color_editor.toggle_mode(),
                         _ => app.close_color_picker(true),
                     },
@@ -163,9 +174,17 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                         app.yank_color();
                     }
                     KeyCode::Up => {
-                        let fine = if alt { 0.5 } else if shift { 10.0 } else { 2.0 };
+                        let fine = if alt {
+                            0.5
+                        } else if shift {
+                            10.0
+                        } else {
+                            2.0
+                        };
                         match app.color_editor.focus {
-                            ColorPickerFocus::RgbSlider(_) if app.color_editor.mode == ColorPickerMode::RgbSliders => {
+                            ColorPickerFocus::RgbSlider(_)
+                                if app.color_editor.mode == ColorPickerMode::RgbSliders =>
+                            {
                                 app.color_editor.move_rgb_slider_focus(true);
                             }
                             ColorPickerFocus::HslField => {
@@ -184,9 +203,17 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                         }
                     }
                     KeyCode::Down => {
-                        let fine = if alt { 0.5 } else if shift { 10.0 } else { 2.0 };
+                        let fine = if alt {
+                            0.5
+                        } else if shift {
+                            10.0
+                        } else {
+                            2.0
+                        };
                         match app.color_editor.focus {
-                            ColorPickerFocus::RgbSlider(_) if app.color_editor.mode == ColorPickerMode::RgbSliders => {
+                            ColorPickerFocus::RgbSlider(_)
+                                if app.color_editor.mode == ColorPickerMode::RgbSliders =>
+                            {
                                 app.color_editor.move_rgb_slider_focus(false);
                             }
                             ColorPickerFocus::HslField => {
@@ -205,12 +232,25 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                         }
                     }
                     KeyCode::Left => {
-                        let rgb_delta = if alt { -20.0 } else if shift { -1.0 } else { -5.0 };
-                        let hsl_delta = if alt { -10.0 } else if shift { -0.5 } else { -2.0 };
+                        let rgb_delta = if alt {
+                            -20.0
+                        } else if shift {
+                            -1.0
+                        } else {
+                            -5.0
+                        };
+                        let hsl_delta = if alt {
+                            -10.0
+                        } else if shift {
+                            -0.5
+                        } else {
+                            -2.0
+                        };
                         match app.color_editor.focus {
                             ColorPickerFocus::ModeToggle => app.color_editor.toggle_mode(),
                             ColorPickerFocus::RgbSlider(_) => {
-                                app.color_editor.adjust_rgb_slider_selection(rgb_delta as i32);
+                                app.color_editor
+                                    .adjust_rgb_slider_selection(rgb_delta as i32);
                                 app.apply_current_color();
                             }
                             ColorPickerFocus::HslField => {
@@ -218,19 +258,41 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                                 app.apply_current_color();
                             }
                             _ => {
-                                if app.color_editor.adjust_focused_numeric(if matches!(app.color_editor.focus, ColorPickerFocus::RgbField(_)) { rgb_delta } else { hsl_delta }) {
+                                if app.color_editor.adjust_focused_numeric(
+                                    if matches!(
+                                        app.color_editor.focus,
+                                        ColorPickerFocus::RgbField(_)
+                                    ) {
+                                        rgb_delta
+                                    } else {
+                                        hsl_delta
+                                    },
+                                ) {
                                     app.apply_current_color();
                                 }
                             }
                         }
                     }
                     KeyCode::Right => {
-                        let rgb_delta = if alt { 20.0 } else if shift { 1.0 } else { 5.0 };
-                        let hsl_delta = if alt { 10.0 } else if shift { 0.5 } else { 2.0 };
+                        let rgb_delta = if alt {
+                            20.0
+                        } else if shift {
+                            1.0
+                        } else {
+                            5.0
+                        };
+                        let hsl_delta = if alt {
+                            10.0
+                        } else if shift {
+                            0.5
+                        } else {
+                            2.0
+                        };
                         match app.color_editor.focus {
                             ColorPickerFocus::ModeToggle => app.color_editor.toggle_mode(),
                             ColorPickerFocus::RgbSlider(_) => {
-                                app.color_editor.adjust_rgb_slider_selection(rgb_delta as i32);
+                                app.color_editor
+                                    .adjust_rgb_slider_selection(rgb_delta as i32);
                                 app.apply_current_color();
                             }
                             ColorPickerFocus::HslField => {
@@ -238,7 +300,16 @@ pub fn process_key(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                                 app.apply_current_color();
                             }
                             _ => {
-                                if app.color_editor.adjust_focused_numeric(if matches!(app.color_editor.focus, ColorPickerFocus::RgbField(_)) { rgb_delta } else { hsl_delta }) {
+                                if app.color_editor.adjust_focused_numeric(
+                                    if matches!(
+                                        app.color_editor.focus,
+                                        ColorPickerFocus::RgbField(_)
+                                    ) {
+                                        rgb_delta
+                                    } else {
+                                        hsl_delta
+                                    },
+                                ) {
                                     app.apply_current_color();
                                 }
                             }
@@ -477,7 +548,9 @@ pub fn process_mouse(app: &mut App, mouse: MouseEvent) {
         app.color_editor.mode,
         app.selected_element.preferred_picker_anchor(),
     );
-    let point_focus = app.color_editor.focus_for_point(&rects, mouse.column, mouse.row);
+    let point_focus = app
+        .color_editor
+        .focus_for_point(&rects, mouse.column, mouse.row);
 
     let update_drag = |app: &mut App,
                        target: ColorDragTarget,
@@ -487,8 +560,12 @@ pub fn process_mouse(app: &mut App, mouse: MouseEvent) {
         match target {
             ColorDragTarget::HslField => {
                 if rects.main_view.width > 0 && rects.main_view.height > 0 {
-                    let x = column.saturating_sub(rects.main_view.x).min(rects.main_view.width.saturating_sub(1));
-                    let y = row.saturating_sub(rects.main_view.y).min(rects.main_view.height.saturating_sub(1));
+                    let x = column
+                        .saturating_sub(rects.main_view.x)
+                        .min(rects.main_view.width.saturating_sub(1));
+                    let y = row
+                        .saturating_sub(rects.main_view.y)
+                        .min(rects.main_view.height.saturating_sub(1));
                     let x_frac = x as f32 / rects.main_view.width.saturating_sub(1).max(1) as f32;
                     let y_frac = y as f32 / rects.main_view.height.saturating_sub(1).max(1) as f32;
                     app.color_editor.update_from_hsl_field(x_frac, y_frac);
@@ -497,7 +574,9 @@ pub fn process_mouse(app: &mut App, mouse: MouseEvent) {
             }
             ColorDragTarget::LightnessSlider => {
                 if rects.aux_slider.height > 0 {
-                    let y = row.saturating_sub(rects.aux_slider.y).min(rects.aux_slider.height.saturating_sub(1));
+                    let y = row
+                        .saturating_sub(rects.aux_slider.y)
+                        .min(rects.aux_slider.height.saturating_sub(1));
                     let y_frac = y as f32 / rects.aux_slider.height.saturating_sub(1).max(1) as f32;
                     app.color_editor.update_lightness_from_frac(y_frac);
                     app.apply_current_color();
@@ -512,19 +591,36 @@ pub fn process_mouse(app: &mut App, mouse: MouseEvent) {
                 match focus {
                     ColorPickerFocus::ModeToggle => {
                         let mid = rects.mode_switch.x + rects.mode_switch.width / 2;
-                        if mouse.column >= mid && app.color_editor.mode != ColorPickerMode::HslField {
+                        if mouse.column >= mid && app.color_editor.mode != ColorPickerMode::HslField
+                        {
                             app.color_editor.toggle_mode();
-                        } else if mouse.column < mid && app.color_editor.mode != ColorPickerMode::RgbSliders {
+                        } else if mouse.column < mid
+                            && app.color_editor.mode != ColorPickerMode::RgbSliders
+                        {
                             app.color_editor.toggle_mode();
                         }
                     }
                     ColorPickerFocus::HslField => {
-                        app.color_editor.set_drag_target(Some(ColorDragTarget::HslField));
-                        update_drag(app, ColorDragTarget::HslField, mouse.column, mouse.row, &rects);
+                        app.color_editor
+                            .set_drag_target(Some(ColorDragTarget::HslField));
+                        update_drag(
+                            app,
+                            ColorDragTarget::HslField,
+                            mouse.column,
+                            mouse.row,
+                            &rects,
+                        );
                     }
                     ColorPickerFocus::LightnessSlider => {
-                        app.color_editor.set_drag_target(Some(ColorDragTarget::LightnessSlider));
-                        update_drag(app, ColorDragTarget::LightnessSlider, mouse.column, mouse.row, &rects);
+                        app.color_editor
+                            .set_drag_target(Some(ColorDragTarget::LightnessSlider));
+                        update_drag(
+                            app,
+                            ColorDragTarget::LightnessSlider,
+                            mouse.column,
+                            mouse.row,
+                            &rects,
+                        );
                     }
                     other => app.color_editor.set_focus(other),
                 }
@@ -571,7 +667,10 @@ pub fn run(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    execute!(terminal.backend_mut(), crossterm::event::DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        crossterm::event::DisableMouseCapture
+    )?;
     ratatui::restore();
 
     if app.restart_after_exit {

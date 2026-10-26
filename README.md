@@ -12,7 +12,7 @@ A terminal UI for creating, editing, and applying [Zellij](https://zellij.dev) t
 
 - **Live preview** — see every color change reflected instantly across a full Zellij-layout mockup
 - **41 built-in themes** — all official Zellij themes bundled, no extra files needed
-- **Per-component theming** — control foreground and background for each UI element independently
+- **Per-component theming** — control foreground and background for Zellij UI elements independently
 - **Multiplayer colors** — edit the 10 `player_1`–`player_10` cursor/pane-border colors Zellij shows for other clients in a shared session
 - **Dual-mode color picker** — RGB sliders plus an HSL field picker with live HEX/RGB/HSL values
 - **Yank / paste / undo** — copy a color, paste it elsewhere, or undo the last change (`y` / `p` / `u`)
@@ -20,6 +20,7 @@ A terminal UI for creating, editing, and applying [Zellij](https://zellij.dev) t
 - **Rename / delete** — manage saved themes directly from the loader (`r` / `d`)
 - **Save themes** — writes to `~/.config/zellij/themes/` in the correct KDL format
 - **Apply to Zellij** — sets `theme "<name>"` in `~/.config/zellij/config.kdl` so Zellij picks it up on next launch
+- **Preview backdrop** — pane interiors use the active theme's main UI background as an editor aid; actual terminal pane background is separate Zellij pane/layout state
 - **In-app self-update** — checks GitHub releases on startup and can replace the binary in place on Linux x86_64 (`U` when an update is available)
 - **Help overlay** — press `?` for a full keybinding reference
 
@@ -60,7 +61,7 @@ cp target/release/zellit ~/.local/bin/
 zellit
 ```
 
-The app opens a full-terminal preview of a Zellij layout. Use the keyboard to navigate and edit.
+The app opens a full-terminal preview of a Zellij layout. Use the keyboard to navigate and edit. Pane interiors are painted with the active theme's main UI background so contrast is visible while editing; this is a preview backdrop, not a saved terminal pane background.
 
 ### Keybindings
 
@@ -76,7 +77,10 @@ The app opens a full-terminal preview of a Zellij layout. Use the keyboard to na
 | `u` | Undo last color change |
 | `s` | Save theme as… (prompts for a name) |
 | `l` | Open theme loader |
-| `a` | Apply current theme to Zellij |
+| `a` | Apply current theme to Zellij (also recolors any [zjstatus](https://github.com/dj95/zjstatus) plugin in `~/.config/zellij/layouts/*.kdl`; originals saved once as `.kdl.bak`) |
+| `z` | Toggle a zjstatus-style bar in the preview |
+| `6` | Jump to the zjstatus group (only when a zjstatus plugin is found in `~/.config/zellij/layouts/*.kdl`; otherwise shown greyed as "not detected") |
+| `x` | Reset the selected zjstatus slot so it follows the theme again |
 | `U` | Install the latest released binary when an update is available on Linux x86_64 |
 | `?` | Toggle help overlay |
 | `A` | About — project credits and links |
@@ -110,6 +114,10 @@ The app opens a full-terminal preview of a Zellij layout. Use the keyboard to na
 | `d` | Delete selected saved theme |
 | `Esc` | Clear search / cancel |
 
+### zjstatus
+
+On apply, zellit recolors every [zjstatus](https://github.com/dj95/zjstatus) plugin block in `~/.config/zellij/layouts/*.kdl` from the theme (a one-time `.kdl.bak` is kept). Only colors change: `fg=`/`bg=` in `#[...]` formats and `color_<name>` alias definitions (matched by conventional names such as `bg`, `fg`, `fg_dim`, `red`, `green`, `blue`). `$alias` references and all non-color options are left as written. The zjstatus group lets you override the Bar, Accent, Tab (Active/Inactive) and Muted slots by hand; untouched slots keep following the theme, and overrides are saved next to the theme as `<name>.zjstatus.json`. Each mode pill gets its own color: `locked` uses the theme's error color, `tmux` its success color, and the other modes cycle through the multiplayer colors. Inside Zellij, the default layout is reloaded into the current tab; if the layout points at a missing `zjstatus.wasm`, zellit skips the reload and says so.
+
 ## Built-in themes
 
 All 41 official Zellij themes are bundled in the binary and available immediately from the theme loader (`l`):
@@ -141,6 +149,12 @@ themes {
 ```
 
 Standard Zellij palette themes (using `fg`, `bg`, `black`, `red`, … keys) are also supported — the loader maps palette colors to components automatically.
+
+### Terminal pane background
+
+Zellit edits Zellij theme data. Theme `background` values style Zellij-owned UI and plugin components, and the preview pane backdrop uses the theme's main UI background so light/dark variants are easy to judge.
+
+The actual default background of terminal applications inside panes is not saved in theme KDL. In Zellij, that belongs to pane/layout state such as layout `default_bg` or runtime pane color actions, so Zellit treats it as a separate future feature rather than mixing it into theme files.
 
 ## Themeable components
 

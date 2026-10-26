@@ -1,6 +1,6 @@
 use crate::theme::{RgbColor, Theme, ThemeComponent, ThemeComponentType};
-use crate::update::UpdateMsg;
 use crate::ui::color_picker::ColorEditor;
+use crate::update::UpdateMsg;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -63,6 +63,12 @@ pub struct App {
     pub update_status: UpdateStatus,
     pub update_rx: Option<std::sync::mpsc::Receiver<UpdateMsg>>,
     pub restart_after_exit: bool,
+    // Preview a zjstatus-style bar (colors derived from the theme) instead of Zellij's bars
+    pub show_zjstatus: bool,
+    // A zjstatus plugin was found in a layout; gates the zjstatus group
+    pub zjstatus_detected: bool,
+    // Whether the zjstatus slot being edited was hand-edited before the picker opened
+    pub original_zj_override: bool,
 }
 
 /// Width of the left navigation sidebar, in columns. Shared between the
@@ -133,12 +139,14 @@ pub enum PreviewGroup {
     Content,
     ExitCodes,
     Multiplayer,
+    /// Only available when a zjstatus plugin is found in a layout.
+    ZjStatus,
 }
 
 impl PreviewGroup {
-    pub fn all() -> &'static [PreviewGroup; 6] {
+    pub fn all() -> &'static [PreviewGroup; 7] {
         use PreviewGroup::*;
-        &[TabBar, StatusBar, Panes, Content, ExitCodes, Multiplayer]
+        &[TabBar, StatusBar, Panes, Content, ExitCodes, Multiplayer, ZjStatus]
     }
 
     pub fn label(&self) -> &'static str {
@@ -149,6 +157,7 @@ impl PreviewGroup {
             Self::Content => "Content",
             Self::ExitCodes => "Exit Codes",
             Self::Multiplayer => "Multiplayer",
+            Self::ZjStatus => "zjstatus",
         }
     }
 
@@ -158,12 +167,19 @@ impl PreviewGroup {
             Self::TabBar => &[TabSelected, TabUnselected],
             Self::StatusBar => &[TextUnselected, TextSelected],
             Self::Panes => &[PaneSelected, PaneUnselected, PaneHighlight],
-            Self::Content => &[TableTitle, TableCellSelected, TableCellUnselected, ListSelected, ListUnselected],
+            Self::Content => &[
+                TableTitle,
+                TableCellSelected,
+                TableCellUnselected,
+                ListSelected,
+                ListUnselected,
+            ],
             Self::ExitCodes => &[ExitSuccess, ExitError],
             Self::Multiplayer => &[
-                Player1, Player2, Player3, Player4, Player5,
-                Player6, Player7, Player8, Player9, Player10,
+                Player1, Player2, Player3, Player4, Player5, Player6, Player7, Player8, Player9,
+                Player10,
             ],
+            Self::ZjStatus => &[ZjBar, ZjAccent, ZjTabActive, ZjTabInactive, ZjMuted],
         }
     }
 }
@@ -199,6 +215,12 @@ pub enum PreviewElement {
     Player8,
     Player9,
     Player10,
+    // zjstatus bar sections
+    ZjBar,
+    ZjAccent,
+    ZjTabActive,
+    ZjTabInactive,
+    ZjMuted,
 }
 
 impl PreviewElement {
@@ -229,6 +251,11 @@ impl PreviewElement {
             Player8,
             Player9,
             Player10,
+            ZjBar,
+            ZjAccent,
+            ZjTabActive,
+            ZjTabInactive,
+            ZjMuted,
         ]
     }
 
@@ -238,10 +265,12 @@ impl PreviewElement {
             TabSelected | TabUnselected => PreviewGroup::TabBar,
             TextUnselected | TextSelected => PreviewGroup::StatusBar,
             PaneSelected | PaneUnselected | PaneHighlight => PreviewGroup::Panes,
-            TableTitle | TableCellSelected | TableCellUnselected | ListSelected | ListUnselected => PreviewGroup::Content,
+            TableTitle | TableCellSelected | TableCellUnselected | ListSelected
+            | ListUnselected => PreviewGroup::Content,
             ExitSuccess | ExitError => PreviewGroup::ExitCodes,
-            Player1 | Player2 | Player3 | Player4 | Player5
-            | Player6 | Player7 | Player8 | Player9 | Player10 => PreviewGroup::Multiplayer,
+            Player1 | Player2 | Player3 | Player4 | Player5 | Player6 | Player7 | Player8
+            | Player9 | Player10 => PreviewGroup::Multiplayer,
+            ZjBar | ZjAccent | ZjTabActive | ZjTabInactive | ZjMuted => PreviewGroup::ZjStatus,
         }
     }
 
@@ -250,9 +279,20 @@ impl PreviewElement {
     pub fn is_single_color(&self) -> bool {
         matches!(
             self,
-            Self::PaneSelected | Self::PaneUnselected | Self::PaneHighlight
-                | Self::Player1 | Self::Player2 | Self::Player3 | Self::Player4 | Self::Player5
-                | Self::Player6 | Self::Player7 | Self::Player8 | Self::Player9 | Self::Player10
+            Self::PaneSelected
+                | Self::PaneUnselected
+                | Self::PaneHighlight
+                | Self::Player1
+                | Self::Player2
+                | Self::Player3
+                | Self::Player4
+                | Self::Player5
+                | Self::Player6
+                | Self::Player7
+                | Self::Player8
+                | Self::Player9
+                | Self::Player10
+                | Self::ZjMuted
         )
     }
 
@@ -292,6 +332,11 @@ impl PreviewElement {
             Self::Player8 => ThemeComponentType::Player8,
             Self::Player9 => ThemeComponentType::Player9,
             Self::Player10 => ThemeComponentType::Player10,
+            Self::ZjBar => ThemeComponentType::ZjBar,
+            Self::ZjAccent => ThemeComponentType::ZjAccent,
+            Self::ZjTabActive => ThemeComponentType::ZjTabActive,
+            Self::ZjTabInactive => ThemeComponentType::ZjTabInactive,
+            Self::ZjMuted => ThemeComponentType::ZjMuted,
         }
     }
 
@@ -321,30 +366,78 @@ impl PreviewElement {
             Self::Player8 => "Player 8",
             Self::Player9 => "Player 9",
             Self::Player10 => "Player 10",
+            Self::ZjBar => "Bar",
+            Self::ZjAccent => "Accent (mode, session, clock)",
+            Self::ZjTabActive => "Tab (Active)",
+            Self::ZjTabInactive => "Tab (Inactive)",
+            Self::ZjMuted => "Muted text",
         }
     }
 }
 
 fn theme_swatches(theme: &crate::theme::Theme) -> [crate::theme::RgbColor; 4] {
     [
-        theme.get(crate::theme::ThemeComponentType::TextUnselected).background,
-        theme.get(crate::theme::ThemeComponentType::RibbonSelected).background,
-        theme.get(crate::theme::ThemeComponentType::FrameSelected).base,
-        theme.get(crate::theme::ThemeComponentType::FrameHighlight).base,
+        theme
+            .get(crate::theme::ThemeComponentType::TextUnselected)
+            .background,
+        theme
+            .get(crate::theme::ThemeComponentType::RibbonSelected)
+            .background,
+        theme
+            .get(crate::theme::ThemeComponentType::FrameSelected)
+            .base,
+        theme
+            .get(crate::theme::ThemeComponentType::FrameHighlight)
+            .base,
     ]
 }
 
-fn load_entry(entry: &ThemeEntry, config_manager: &crate::config::ConfigManager) -> Result<crate::theme::Theme, crate::config::ConfigError> {
-    match entry {
-        ThemeEntry::User(n) => config_manager.load_theme(n),
-        ThemeEntry::Builtin(n) => {
-            let kdl = crate::bundled_themes::THEMES
-                .iter()
-                .find(|(k, _)| k == n)
-                .map(|(_, v)| *v)
-                .unwrap_or("");
-            crate::config::parse_theme_kdl(kdl, n)
+fn bundled_theme_name(name: &str) -> Option<&'static str> {
+    if let Some((theme_name, _)) = crate::bundled_themes::THEMES
+        .iter()
+        .find(|(k, _)| *k == name)
+    {
+        return Some(*theme_name);
+    }
+
+    let hyphenated = name.replace('_', "-");
+    crate::bundled_themes::THEMES
+        .iter()
+        .find(|(k, _)| *k == hyphenated)
+        .map(|(theme_name, _)| *theme_name)
+}
+
+fn load_theme_named(
+    name: &str,
+    config_manager: &crate::config::ConfigManager,
+) -> Result<crate::theme::Theme, crate::config::ConfigError> {
+    if config_manager
+        .list_themes()?
+        .iter()
+        .any(|theme| theme == name)
+    {
+        return config_manager.load_theme(name);
+    }
+
+    if let Some(theme_name) = bundled_theme_name(name) {
+        if let Some((_, kdl)) = crate::bundled_themes::THEMES
+            .iter()
+            .find(|(k, _)| *k == theme_name)
+        {
+            return crate::config::parse_theme_kdl(kdl, theme_name);
         }
+    }
+
+    Ok(Theme::default())
+}
+
+fn load_entry(
+    entry: &ThemeEntry,
+    config_manager: &crate::config::ConfigManager,
+) -> Result<crate::theme::Theme, crate::config::ConfigError> {
+    match entry {
+        ThemeEntry::User(n) => load_theme_named(n, config_manager),
+        ThemeEntry::Builtin(n) => load_theme_named(n, config_manager),
     }
 }
 
@@ -382,6 +475,9 @@ impl Default for App {
             update_status: UpdateStatus::Idle,
             update_rx: None,
             restart_after_exit: false,
+            show_zjstatus: false,
+            zjstatus_detected: false,
+            original_zj_override: false,
         }
     }
 }
@@ -390,15 +486,28 @@ impl App {
     pub fn new() -> Self {
         let mut app = Self::default();
         app.sync_theme_name_input();
+        app.zjstatus_detected = app.config_manager.zjstatus_detected();
         app
     }
 
     // ── Flat element navigation (sidebar tree) ───────────────────────────
 
+    /// Elements reachable by navigation; zjstatus ones only when the plugin was detected.
+    pub fn visible_elements(&self) -> Vec<PreviewElement> {
+        PreviewElement::all()
+            .iter()
+            .copied()
+            .filter(|e| self.zjstatus_detected || e.group() != PreviewGroup::ZjStatus)
+            .collect()
+    }
+
     /// Move to the previous element in the flat list across all groups.
     pub fn prev_element(&mut self) {
-        let all = PreviewElement::all();
-        let idx = all.iter().position(|e| *e == self.selected_element).unwrap_or(0);
+        let all = self.visible_elements();
+        let idx = all
+            .iter()
+            .position(|e| *e == self.selected_element)
+            .unwrap_or(0);
         let next_idx = if idx == 0 { all.len() - 1 } else { idx - 1 };
         self.selected_element = all[next_idx];
         self.selected_group = all[next_idx].group();
@@ -410,8 +519,11 @@ impl App {
 
     /// Move to the next element in the flat list across all groups.
     pub fn next_element(&mut self) {
-        let all = PreviewElement::all();
-        let idx = all.iter().position(|e| *e == self.selected_element).unwrap_or(0);
+        let all = self.visible_elements();
+        let idx = all
+            .iter()
+            .position(|e| *e == self.selected_element)
+            .unwrap_or(0);
         let next_idx = (idx + 1) % all.len();
         self.selected_element = all[next_idx];
         self.selected_group = all[next_idx].group();
@@ -424,6 +536,10 @@ impl App {
     /// Number keys 1–4 → jump straight to that group.
     pub fn select_group_index(&mut self, n: usize) {
         if let Some(g) = PreviewGroup::all().get(n) {
+            if *g == PreviewGroup::ZjStatus && !self.zjstatus_detected {
+                self.message = Some("zjstatus not detected in any layout".to_string());
+                return;
+            }
             self.select_group(*g);
         }
     }
@@ -468,9 +584,8 @@ impl App {
     /// Fields whose label fuzzily matches the query (all when empty).
     pub fn filtered_fields(&self) -> Vec<PreviewElement> {
         let q = self.field_search_query.to_ascii_lowercase();
-        PreviewElement::all()
-            .iter()
-            .copied()
+        self.visible_elements()
+            .into_iter()
             .filter(|f| {
                 if q.is_empty() {
                     return true;
@@ -573,13 +688,17 @@ impl App {
             .iter()
             .position(|e| e.name() == self.theme.name)
             .unwrap_or(0);
-        self.theme_swatches = self.all_themes.iter().map(|entry| {
-            let sw = match load_entry(entry, &self.config_manager) {
-                Ok(t) => theme_swatches(&t),
-                Err(_) => [crate::theme::RgbColor::new(50, 50, 50); 4],
-            };
-            (entry.name().to_string(), sw)
-        }).collect();
+        self.theme_swatches = self
+            .all_themes
+            .iter()
+            .map(|entry| {
+                let sw = match load_entry(entry, &self.config_manager) {
+                    Ok(t) => theme_swatches(&t),
+                    Err(_) => [crate::theme::RgbColor::new(50, 50, 50); 4],
+                };
+                (entry.name().to_string(), sw)
+            })
+            .collect();
         // Live-preview the initially selected theme
         if let Some(entry) = self.loadable_themes.get(self.selected_theme_index).cloned() {
             if let Ok(t) = load_entry(&entry, &self.config_manager) {
@@ -594,7 +713,9 @@ impl App {
         if let Some(entry) = self.loadable_themes.get(self.selected_theme_index).cloned() {
             let name = entry.name().to_string();
             match load_entry(&entry, &self.config_manager) {
-                Ok(t) => { self.theme = t; }
+                Ok(t) => {
+                    self.theme = t;
+                }
                 Err(e) => {
                     self.message = Some(format!("✗ Error loading \"{}\": {}", name, e));
                     return;
@@ -610,7 +731,8 @@ impl App {
 
     pub fn apply_selected_theme(&mut self) {
         // theme already loaded into self.theme from scrolling
-        let name = self.loadable_themes
+        let name = self
+            .loadable_themes
             .get(self.selected_theme_index)
             .map(|e| e.name().to_string())
             .unwrap_or_default();
@@ -619,7 +741,12 @@ impl App {
         self.dirty = false;
         self.input_mode = InputMode::Preview;
         match self.config_manager.apply_theme_to_zellij(&self.theme) {
-            Ok(()) => self.message = Some(format!("✓ Applied \"{}\" — restart Zellij to see changes", name)),
+            Ok(note) => {
+                self.message = Some(match note {
+                    Some(note) => format!("✓ Applied \"{name}\" — ⚠ {note}, bar not reloaded"),
+                    None => format!("✓ Applied \"{name}\" — restart Zellij to see changes"),
+                })
+            }
             Err(e) => self.message = Some(format!("✗ Error: {}", e)),
         }
     }
@@ -637,11 +764,18 @@ impl App {
 
     pub fn apply_theme_to_zellij(&mut self) {
         match self.config_manager.apply_theme_to_zellij(&self.theme) {
-            Ok(()) => {
-                self.message = Some(format!(
-                    "✓ Saved + applied \"{}\" — restart Zellij to see changes",
-                    self.theme.name
-                ));
+            Ok(note) => {
+                self.message = Some(match note {
+                    Some(note) => format!(
+                        "✓ Saved + applied \"{}\" — ⚠ {note}, bar not reloaded",
+                        self.theme.name
+                    ),
+                    None => format!(
+                        "✓ Saved + applied \"{}\" — restart Zellij to see changes",
+                        self.theme.name
+                    ),
+                });
+                self.dirty = false;
             }
             Err(e) => {
                 self.message = Some(format!("✗ Error: {}", e));
@@ -671,16 +805,25 @@ impl App {
     }
 
     pub fn apply_filter_to_list(&mut self) {
-        let q = self.theme_search_query.trim_start_matches('/').to_ascii_lowercase();
-        self.loadable_themes = self.all_themes.iter().filter(|e| {
-            let matches_filter = match self.theme_filter {
-                ThemeFilter::All => true,
-                ThemeFilter::Builtin => e.is_builtin(),
-                ThemeFilter::Saved => !e.is_builtin(),
-            };
-            let matches_search = q.is_empty() || fuzzy_match(&e.name().to_ascii_lowercase(), &q);
-            matches_filter && matches_search
-        }).cloned().collect();
+        let q = self
+            .theme_search_query
+            .trim_start_matches('/')
+            .to_ascii_lowercase();
+        self.loadable_themes = self
+            .all_themes
+            .iter()
+            .filter(|e| {
+                let matches_filter = match self.theme_filter {
+                    ThemeFilter::All => true,
+                    ThemeFilter::Builtin => e.is_builtin(),
+                    ThemeFilter::Saved => !e.is_builtin(),
+                };
+                let matches_search =
+                    q.is_empty() || fuzzy_match(&e.name().to_ascii_lowercase(), &q);
+                matches_filter && matches_search
+            })
+            .cloned()
+            .collect();
 
         if self.selected_theme_index >= self.loadable_themes.len() {
             self.selected_theme_index = self.loadable_themes.len().saturating_sub(1);
@@ -689,7 +832,11 @@ impl App {
 
     pub fn set_theme_filter(&mut self, filter: ThemeFilter) {
         // Toggle off if same filter pressed again
-        self.theme_filter = if self.theme_filter == filter { ThemeFilter::All } else { filter };
+        self.theme_filter = if self.theme_filter == filter {
+            ThemeFilter::All
+        } else {
+            filter
+        };
         self.apply_filter_to_list();
         self.selected_theme_index = 0;
         // Swatches are keyed by name; no recompute needed after filter changes
@@ -697,6 +844,7 @@ impl App {
         if let Some(entry) = self.loadable_themes.get(0).cloned() {
             if let Ok(t) = load_entry(&entry, &self.config_manager) {
                 self.theme = t;
+                self.dirty = false;
             }
         }
     }
@@ -712,6 +860,7 @@ impl App {
         if let Some(entry) = self.loadable_themes.get(self.selected_theme_index).cloned() {
             if let Ok(t) = load_entry(&entry, &self.config_manager) {
                 self.theme = t;
+                self.dirty = false;
             }
         }
     }
@@ -726,6 +875,7 @@ impl App {
         if let Some(entry) = self.loadable_themes.get(self.selected_theme_index).cloned() {
             if let Ok(t) = load_entry(&entry, &self.config_manager) {
                 self.theme = t;
+                self.dirty = false;
             }
         }
     }
@@ -763,7 +913,21 @@ impl App {
             PreviewAttribute::Base => component.base = color,
             PreviewAttribute::Background => component.background = color,
         }
+        if comp_type.is_zjstatus() {
+            self.theme.zj_overrides.insert(comp_type);
+        }
+        self.theme.sync_zjstatus();
         self.dirty = true;
+    }
+
+    /// Drops a hand-edited zjstatus slot so it follows the theme again.
+    pub fn reset_zjstatus_slot(&mut self) {
+        let comp_type = self.selected_element.component_type();
+        if comp_type.is_zjstatus() && self.theme.zj_overrides.remove(&comp_type) {
+            self.theme.sync_zjstatus();
+            self.dirty = true;
+            self.message = Some("zjstatus slot follows the theme again".to_string());
+        }
     }
 
     pub fn apply_current_color(&mut self) {
@@ -775,6 +939,7 @@ impl App {
     pub fn open_color_picker(&mut self) {
         let comp_type = self.selected_element.component_type();
         self.original_component = Some(self.theme.get(comp_type).clone());
+        self.original_zj_override = self.theme.zj_overrides.contains(&comp_type);
         let color = self.get_color();
         let previous_mode = self.color_editor.mode;
         self.color_editor = ColorEditor::from_rgb(color.r, color.g, color.b);
@@ -792,6 +957,10 @@ impl App {
                 let comp_type = self.selected_element.component_type();
                 let component = self.theme.get_mut(comp_type);
                 *component = original;
+                if comp_type.is_zjstatus() && !self.original_zj_override {
+                    self.theme.zj_overrides.remove(&comp_type);
+                }
+                self.theme.sync_zjstatus();
             }
         }
         self.original_component = None;
@@ -815,6 +984,7 @@ impl App {
         if let Some(entry) = self.loadable_themes.get(self.selected_theme_index).cloned() {
             if let Ok(t) = load_entry(&entry, &self.config_manager) {
                 self.theme = t;
+                self.dirty = false;
             }
         }
     }
@@ -881,12 +1051,19 @@ impl App {
 
     // Feature 5: rename/delete saved themes
     pub fn begin_rename_selected_theme(&mut self) {
-        if self.loadable_themes.get(self.selected_theme_index).map(|e| e.is_builtin()).unwrap_or(true) {
+        if self
+            .loadable_themes
+            .get(self.selected_theme_index)
+            .map(|e| e.is_builtin())
+            .unwrap_or(true)
+        {
             self.message = Some(String::from("Cannot rename built-in themes"));
             return;
         }
         self.loader_action_index = self.selected_theme_index;
-        self.theme_name_input = self.loadable_themes[self.selected_theme_index].name().to_string();
+        self.theme_name_input = self.loadable_themes[self.selected_theme_index]
+            .name()
+            .to_string();
         self.input_mode = InputMode::ThemeLoadRename;
     }
 
@@ -896,7 +1073,11 @@ impl App {
             self.message = Some(String::from("✗ Invalid name"));
             return;
         }
-        let old_name = self.loadable_themes.get(self.loader_action_index).map(|e| e.name().to_string()).unwrap_or_default();
+        let old_name = self
+            .loadable_themes
+            .get(self.loader_action_index)
+            .map(|e| e.name().to_string())
+            .unwrap_or_default();
         match self.config_manager.rename_theme(&old_name, &new_name) {
             Ok(()) => self.message = Some(format!("✓ Renamed to {}", new_name)),
             Err(e) => self.message = Some(format!("✗ {}", e)),
@@ -906,24 +1087,37 @@ impl App {
     }
 
     pub fn begin_delete_selected_theme(&mut self) {
-        if self.loadable_themes.get(self.selected_theme_index).map(|e| e.is_builtin()).unwrap_or(true) {
+        if self
+            .loadable_themes
+            .get(self.selected_theme_index)
+            .map(|e| e.is_builtin())
+            .unwrap_or(true)
+        {
             self.message = Some(String::from("Cannot delete built-in themes"));
             return;
         }
         self.loader_action_index = self.selected_theme_index;
-        let name = self.loadable_themes[self.selected_theme_index].name().to_string();
+        let name = self.loadable_themes[self.selected_theme_index]
+            .name()
+            .to_string();
         self.message = Some(format!("Delete \"{}\"? y = confirm, n = cancel", name));
         self.input_mode = InputMode::ThemeLoadDeleteConfirm;
     }
 
     pub fn confirm_delete_theme(&mut self) {
-        let name = self.loadable_themes.get(self.loader_action_index).map(|e| e.name().to_string()).unwrap_or_default();
+        let name = self
+            .loadable_themes
+            .get(self.loader_action_index)
+            .map(|e| e.name().to_string())
+            .unwrap_or_default();
         match self.config_manager.delete_theme(&name) {
             Ok(()) => self.message = Some(format!("✓ Deleted \"{}\"", name)),
             Err(e) => self.message = Some(format!("✗ {}", e)),
         }
         self.refresh_theme_list();
-        self.selected_theme_index = self.selected_theme_index.min(self.loadable_themes.len().saturating_sub(1));
+        self.selected_theme_index = self
+            .selected_theme_index
+            .min(self.loadable_themes.len().saturating_sub(1));
         self.input_mode = InputMode::ThemeLoad;
     }
 
@@ -946,7 +1140,9 @@ impl App {
                 self.update_rx = Some(rx);
                 self.message = None;
                 std::thread::spawn(move || {
-                    let _ = tx.send(UpdateMsg::UpdateComplete(crate::update::download_and_replace(&tag)));
+                    let _ = tx.send(UpdateMsg::UpdateComplete(
+                        crate::update::download_and_replace(&tag),
+                    ));
                 });
             }
             UpdateStatus::Checking => {
@@ -998,7 +1194,8 @@ impl App {
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 self.update_rx = None;
                 self.message = None;
-                self.update_status = UpdateStatus::Failed(String::from("update worker disconnected"));
+                self.update_status =
+                    UpdateStatus::Failed(String::from("update worker disconnected"));
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
         }
